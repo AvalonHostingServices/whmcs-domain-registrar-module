@@ -1,0 +1,16 @@
+{
+	"schema": "1.0",
+	"type": "whmcs-registrars",
+	"name": "domain_reseller_registrar",
+	"version": "2.0.1",
+	"license": "proprietary",
+	"category": "domains",
+	"authors": [
+		{
+			"name": "Avalon Hosting Services",
+			"homepage": "https://avalonhosting.services"
+		}
+	],
+	"homepage": "https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services",
+	"support": "https://avalonhosting.services"
+}

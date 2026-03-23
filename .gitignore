@@ -1,0 +1,27 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# Archives and build artifacts
+*.zip
+*.tar
+*.gz
+
+# Common local environment files
+.env
+.env.*
+
+# WHMCS local development assets
+downloads/
+attachments/
+templates_c/
+crons/

@@ -1,0 +1,23 @@
+#Registrantcustomwhois tbody tr td input{
+    pointer-events: none;
+    opacity: 0.5;
+}
+#Registrantcustomwhois tbody tr td select{
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+#Technicalcustomwhois tbody tr td input[name="contactdetails[Technical][Contact Id]"]{
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+#Billingcustomwhois tbody tr td input[name="contactdetails[Billing][Contact Id]"]{
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+#Admincustomwhois tbody tr td input[name="contactdetails[Admin][Contact Id]"]{
+    pointer-events: none;
+    opacity: 0.5;
+}
