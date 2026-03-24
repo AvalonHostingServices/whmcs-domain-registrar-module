@@ -82,6 +82,7 @@ jobs:
             - name: Create GitHub release
               uses: softprops/action-gh-release@v2
               with:
+                  token: "${{ secrets.RELEASE_PAT }}"
                   tag_name: ${{ steps.get_version.outputs.version }}
                   name: Release ${{ steps.get_version.outputs.version }}
                   body: ${{ steps.notes.outputs.body }}
@@ -91,5 +92,3 @@ jobs:
                       whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.zip.sha256
                       whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.tar.gz
                       whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.tar.gz.sha256
-              env:
-                  GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
