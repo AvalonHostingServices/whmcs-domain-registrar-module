@@ -1,20 +1,78 @@
-# License
+# Proprietary License
 
-Avalon Hosting Services - Domain Reseller Registrar Module
-Copyright (c) Avalon Hosting Services. All rights reserved.
+Copyright (C) 2026 Avalon Hosting Services. All rights reserved.
 
-This source code is provided for use with a valid license/subscription of the
-Domain Reseller solution offered by Avalon Hosting Services.
+## Terms and Conditions
 
-Permission to use, copy, modify, and redistribute this code is granted only for
-internal use in conjunction with authorized WHMCS deployments and in accordance
-with Avalon Hosting Services commercial terms.
+### 1. Definitions
 
-This code may not be sold, sublicensed, or redistributed as a standalone product.
+- **"Software"** means the Domain Reseller Registrar for WHMCS module and all associated source
+  code, documentation, and files in this repository.
+- **"Avalon"** means Avalon Hosting Services, the copyright holder.
+- **"You"** means any individual or legal entity that accesses, uses, or contributes to
+  the Software.
+- **"Contribution"** means any source code, documentation, or other material submitted
+  to Avalon for inclusion in the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+### 2. Grant of Rights
+
+Subject to the terms of this license, Avalon grants You a limited, non-exclusive,
+non-transferable, non-sublicensable right to:
+
+- View and read the source code of the Software.
+- Install and use the Software solely in connection with an active Avalon Hosting
+  Services reseller account.
+- Submit Contributions to Avalon through the official repository.
+
+### 3. Restrictions
+
+You may **not**, without prior written permission from Avalon:
+
+- Copy, redistribute, sell, sublicense, or otherwise transfer the Software or any
+  portion of it to any third party.
+- Publish, host, or make the Software (or any derivative of it) publicly available
+  outside of the official Avalon repository.
+- Create, distribute, or offer a competing product or service that is based on,
+  derived from, or substantially similar to the Software.
+- Remove, alter, or obscure any copyright, trademark, or proprietary notice in the
+  Software.
+- Use the Avalon name, logo, or trademarks without prior written consent.
+
+### 4. Contributions
+
+By submitting a Contribution to this repository, You:
+
+- Represent that You have the right to submit the Contribution.
+- Grant Avalon a perpetual, worldwide, irrevocable, royalty-free license to use,
+  modify, incorporate, and sublicense Your Contribution as part of the Software under
+  any terms Avalon chooses.
+- Agree that Your Contribution does not grant You any additional rights to the Software
+  beyond those set out in Section 2.
+
+Contributions are welcome. Please review [CONTRIBUTING.md](CONTRIBUTING.md) before
+submitting a pull request.
+
+### 5. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL AVALON BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+### 6. Termination
+
+Your rights under this license terminate automatically if You breach any of these terms.
+Avalon may also terminate this license at any time with or without notice. Upon
+termination, You must cease all use of the Software and delete all copies in Your
+possession.
+
+### 7. Governing Law
+
+This license shall be governed by and construed in accordance with applicable law.
+Any disputes shall be subject to the exclusive jurisdiction of the courts designated
+by Avalon Hosting Services.
+
+---
+
+For licensing inquiries or permissions beyond the scope of this license, contact:
+[support@avalon.hosting](mailto:support@avalon.hosting)

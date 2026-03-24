@@ -1,52 +1,63 @@
 # Domain Reseller Registrar Module for WHMCS
 
-Official GitHub repository for the Avalon Hosting Services Domain Reseller Registrar Module.
+Official repository for the Avalon Hosting Services Domain Reseller Registrar Module.
 
-Marketplace listing:
-[WHMCS Marketplace Listing](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![WHMCS](https://img.shields.io/badge/WHMCS-8.0+-green)
+![PHP](https://img.shields.io/badge/PHP-8.1%2B-blue)
 
-Current stable release: **v2.0.1**
+- Marketplace listing: [WHMCS Marketplace Listing](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
+- Current stable release: **v2.0.1**
 
-## Purpose
+## Overview
 
-This repository is for WHMCS users and domain resellers who want to:
+This module connects WHMCS domain registrar functions to the Avalon Domain Reseller API.
 
-- Download the registrar module files
-- Report bugs and request features
-- Contribute improvements through pull requests
+Key capabilities:
 
-## Installation
-
-1. Download or clone this repository.
-2. Install the module using either method:
-   - **Method A (copy folder):** Copy `modules/registrars/domain_reseller_registrar` into your WHMCS installation under `modules/registrars/`.
-   - **Method B (zip extraction):** Download the project as ZIP and extract it at the root of your WHMCS installation so the `modules/registrars/domain_reseller_registrar` path is created correctly.
-3. In WHMCS admin area, go to **System Settings > Domain Registrars** and activate **Avalon Hosting Services**.
-4. Configure:
-   - API Endpoint
-   - API Key
-   - Optional Module Log
+- Register and transfer domains
+- Renew and request domain deletion
+- Manage nameservers and DNS records
+- Manage domain contact details
+- Get EPP/Auth codes
+- Toggle ID protection and registrar lock
+- Domain sync and transfer sync support
+- Import TLD pricing from provider API
 
 ## Requirements
 
 - WHMCS with registrar module support
 - PHP cURL extension enabled
-- Valid Domain Reseller API endpoint and API key from Avalon Hosting Services
+- Valid API endpoint and API key from Avalon Hosting Services
+
+## Quick Installation
+
+1. Download or clone this repository.
+2. Copy `modules/registrars/domain_reseller_registrar` into your WHMCS installation under `modules/registrars/`.
+3. In WHMCS admin, go to **System Settings > Domain Registrars**.
+4. Activate **Avalon Hosting Services**.
+5. Configure API Endpoint and API Key.
+
+For the full walkthrough, see [INSTALL.md](INSTALL.md).
+
+## Documentation
+
+- [DOCUMENTATION.md](DOCUMENTATION.md): Central documentation index
+- [INSTALL.md](INSTALL.md): Full installation and activation guide
+- [API.md](API.md): API request envelope, actions, and data contracts
+- [CHANGELOG.md](CHANGELOG.md): Version history
+- [RELEASE_PROCESS.md](RELEASE_PROCESS.md): Release and packaging workflow
+- [SECURITY.md](SECURITY.md): Security reporting process
+- [CONTRIBUTING.md](CONTRIBUTING.md): Contribution guidelines
 
 ## Versioning
 
-This project uses semantic versioning tags (for example, `v2.0.1`).
+This project uses semantic version tags (for example, `v2.0.1`).
 
-See [CHANGELOG.md](CHANGELOG.md) for release details.
-See [RELEASE_PROCESS.md](RELEASE_PROCESS.md) for release and packaging workflow.
+## Support
 
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening pull requests.
-
-## Security
-
-Please report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+- Website: [avalonhosting.services](https://avalonhosting.services)
+- Support: [avalonhosting.services](https://avalonhosting.services)
 
 ## License
 
