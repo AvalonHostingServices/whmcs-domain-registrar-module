@@ -1,0 +1,27 @@
+name: PHP Lint
+
+on:
+    push:
+        branches: [main, master, develop]
+    pull_request:
+        branches: [main, master, develop]
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                php-version: ["8.1", "8.2", "8.3", "8.4"]
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: ${{ matrix.php-version }}
+
+            - name: Run PHP syntax checks
+              run: |
+                  find modules -type f -name "*.php" -print0 | xargs -0 -n1 php -l

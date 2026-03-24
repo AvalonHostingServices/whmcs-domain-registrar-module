@@ -1,0 +1,93 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+
+jobs:
+    create-release:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Get version from tag
+              id: get_version
+              run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+            - name: Build release packages
+              run: |
+                  VERSION="${{ steps.get_version.outputs.version }}"
+                  PACKAGE_BASE="whmcs-domain-registrar-module-${VERSION}"
+
+                  mkdir -p release-temp/modules/registrars
+                  cp -r modules/registrars/domain_reseller_registrar release-temp/modules/registrars/
+
+                  (
+                    cd release-temp
+                    zip -r "../${PACKAGE_BASE}.zip" modules/
+                    tar -czf "../${PACKAGE_BASE}.tar.gz" modules/
+                  )
+
+            - name: Generate checksums
+              run: |
+                  VERSION="${{ steps.get_version.outputs.version }}"
+                  PACKAGE_BASE="whmcs-domain-registrar-module-${VERSION}"
+                  sha256sum "${PACKAGE_BASE}.zip" > "${PACKAGE_BASE}.zip.sha256"
+                  sha256sum "${PACKAGE_BASE}.tar.gz" > "${PACKAGE_BASE}.tar.gz.sha256"
+
+            - name: Determine prerelease flag
+              id: prerelease
+              run: |
+                  VERSION="${{ steps.get_version.outputs.version }}"
+                  if [[ "$VERSION" == *"-"* ]]; then
+                    echo "value=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "value=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Build release notes
+              id: notes
+              run: |
+                  VERSION="${{ steps.get_version.outputs.version }}"
+                  PACKAGE_BASE="whmcs-domain-registrar-module-${VERSION}"
+                  {
+                    echo "body<<EOF"
+                    echo "## Installation"
+                    echo
+                    echo "1. Download one package from this release."
+                    echo "2. Extract into your WHMCS root directory."
+                    echo "3. Confirm files exist under modules/registrars/domain_reseller_registrar/."
+                    echo "4. Activate the registrar in WHMCS Admin under System Settings > Domain Registrars."
+                    echo
+                    echo "## SHA256 Checksums"
+                    echo
+                    echo '```text'
+                    cat "${PACKAGE_BASE}.zip.sha256"
+                    cat "${PACKAGE_BASE}.tar.gz.sha256"
+                    echo '```'
+                    echo
+                    echo "## Changes"
+                    echo
+                    echo "See CHANGELOG.md in this repository for detailed release notes."
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Create GitHub release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ steps.get_version.outputs.version }}
+                  name: Release ${{ steps.get_version.outputs.version }}
+                  body: ${{ steps.notes.outputs.body }}
+                  prerelease: ${{ steps.prerelease.outputs.value }}
+                  files: |
+                      whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.zip
+                      whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.zip.sha256
+                      whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.tar.gz
+                      whmcs-domain-registrar-module-${{ steps.get_version.outputs.version }}.tar.gz.sha256

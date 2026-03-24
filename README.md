@@ -38,6 +38,7 @@ This repository is for WHMCS users and domain resellers who want to:
 This project uses semantic versioning tags (for example, `v2.0.1`).
 
 See [CHANGELOG.md](CHANGELOG.md) for release details.
+See [RELEASE_PROCESS.md](RELEASE_PROCESS.md) for release and packaging workflow.
 
 ## Contributing
 
