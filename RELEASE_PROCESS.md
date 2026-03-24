@@ -6,7 +6,7 @@ This document describes the release flow for the Domain Reseller Registrar Modul
 
 Releases are automated through GitHub Actions.
 
-When you push a version tag (for example `v2.0.2`), the release workflow will:
+When you push a version tag (for example `v2.0.1`), the release workflow will:
 
 1. Package only `modules/registrars/domain_reseller_registrar/`
 2. Create `.zip` and `.tar.gz` archives
@@ -30,10 +30,10 @@ Use semantic version tags prefixed with `v`.
 
 ```bash
 # Recommended: signed annotated tag
-git tag -s v2.0.2 -m "Release version 2.0.2"
+git tag -s v2.0.1 -m "Release version 2.0.1"
 
 # Push tag to trigger release workflow
-git push origin v2.0.2
+git push origin v2.0.1
 ```
 
 ### 3. Verify Workflow
@@ -62,10 +62,10 @@ Resellers should extract the archive at WHMCS root so the path is created exactl
 
 ```bash
 # Linux/macOS
-sha256sum -c whmcs-domain-registrar-module-v2.0.2.zip.sha256
+sha256sum -c whmcs-domain-registrar-module-v2.0.1.zip.sha256
 
 # Windows PowerShell
-(Get-FileHash -Path "whmcs-domain-registrar-module-v2.0.2.zip" -Algorithm SHA256).Hash
+(Get-FileHash -Path "whmcs-domain-registrar-module-v2.0.1.zip" -Algorithm SHA256).Hash
 ```
 
 ## Pre-release Tags

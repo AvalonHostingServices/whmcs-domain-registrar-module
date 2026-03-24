@@ -36,4 +36,4 @@ Do not perform testing against production systems without explicit permission.
 ## Security Update Delivery
 
 Security fixes are prioritized and published as patch releases when possible
-(for example `v2.0.2`).
+(for example `v2.0.1`).
