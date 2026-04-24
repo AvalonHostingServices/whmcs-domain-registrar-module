@@ -126,6 +126,15 @@ async function runHTTP(): Promise<void> {
 		res.json({ status: "ok", server: "registrar-mcp-server" });
 	});
 
+	// Catch-all 404 handler — must be registered after all other routes.
+	app.use((_req, res) => {
+		res.status(404).json({
+			error: "not_found",
+			message:
+				"The requested path does not exist. Valid endpoints: POST /mcp, GET /health",
+		});
+	});
+
 	const port = parseInt(process.env.PORT ?? "3000", 10);
 	app.listen(port, () => {
 		console.error(

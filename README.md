@@ -1,149 +1,200 @@
-# registrar-mcp-server
+# Avalon Domain Reseller — AI Assistant (MCP)
 
-An MCP (Model Context Protocol) server for the [Avalon Hosting Services Domain Reseller Registrar Module](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module). Exposes the Avalon Domain Reseller API to LLMs, enabling AI assistants to check availability, manage nameservers, contacts, locks, transfers, and domain lifecycle — all through well-typed, safety-gated tools.
+Manage your Avalon Hosting Services reseller account using your AI assistant. Ask in plain English to check availability, register or transfer domains, update nameservers and contacts, manage locks, and more — all without leaving your AI client.
 
-> **WHMCS Module**: [AvalonHostingServices/whmcs-domain-registrar-module](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module)  
-> **WHMCS Marketplace**: [Domain Reseller Module for WHMCS — Avalon Hosting Services](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)  
-> **Current stable module release**: v2.0.1
+> Powered by the [Avalon Hosting Services Domain Reseller Registrar Module](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module) v2.0.1  
+> [WHMCS Marketplace listing](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services) &nbsp;·&nbsp; [avalonhosting.services](https://avalonhosting.services/)
 
 ---
 
-## Features
+## What you can do
 
-- **17 tools** covering the full registrar API surface
-- **Strict Zod input validation** — rejects unknown fields, enforces types and ranges
-- **Safety gates** — destructive operations require `confirm: "I_CONFIRM"` and a UUID `client_request_id`
-- **Boolean normalization** — accepts `true`/`false`/`"1"`/`"yes"` for boolean fields
-- **Contact role normalization** — `Technical` and `tech` both map correctly upstream
-- **Dual transport** — `stdio` for local use (Claude Desktop, MCP Inspector), `http` for hosted/multi-client use
-- **Structured error classes** — `auth_error`, `rate_limit`, `timeout`, `upstream_contract_violation`, etc.
-- **Response truncation** — large responses are capped at 25,000 characters with a pagination hint
-- **Markdown + JSON output** — read tools accept a `response_format` param
+Once connected, ask your AI assistant in plain English:
+
+> *"Is example.com available?"*  
+> *"What nameservers is example.com using?"*  
+> *"Change the nameservers on example.com to ns1.provider.com and ns2.provider.com"*  
+> *"Register example.com for 2 years"*  
+> *"Transfer example.com — here's the EPP code: XXXX"*  
+> *"Lock example.com against transfers"*  
+> *"Get the EPP code for example.com so I can move it out"*  
+> *"Renew example.com for 1 year"*  
+> *"What does a .com domain cost?"*
 
 ---
 
 ## Prerequisites
 
-- Node.js ≥ 18
-- npm ≥ 9
-- A running instance of the registrar JSON API (see [API.md](./API.md))
+- **Your reseller API key** — available in your WHMCS admin panel. Contact [Avalon Hosting Services](https://avalonhosting.services/) if you are unsure where to find it.
+- **A compatible AI assistant** — Claude Desktop, Cursor, Windsurf, or any MCP-capable client.
+
+You do **not** need to install Node.js or run any server yourself. The MCP server is hosted by Avalon Hosting Services.
 
 ---
 
-## Installation
+## Connecting your AI assistant
 
-```bash
-git clone https://github.com/AvalonHostingServices/whmcs-domain-registrar-module.git
-cd whmcs-domain-registrar-module
-npm install
-npm run build
-```
+Use the following endpoint and your API key. Nothing else is required.
 
-> The MCP server source lives in the root of the WHMCS module repository.
+> **MCP endpoint:** `https://registrar-mcp.avalonhosting.services/mcp`  
+> *(Contact [Avalon Hosting Services](https://avalonhosting.services/) to confirm the exact endpoint URL for your account.)*
 
----
+### Claude Desktop
 
-## Configuration
+Open your Claude Desktop configuration file:
 
-All configuration is via environment variables. No secrets are stored in code.
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-### Server environment variables
-
-| Variable            | Required | Description                                                                                         |
-| ------------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `REGISTRAR_API_URL` | ✅        | Static API endpoint: `https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php` |
-| `TRANSPORT`         | ❌        | `stdio` (default) or `http`                                                                         |
-| `PORT`              | ❌        | HTTP port when `TRANSPORT=http` (default: `3000`)                                                   |
-
-> `REGISTRAR_API_KEY` is **not** a server env var. Each reseller supplies their own key per-request (see below).
-
-### Reseller authentication (HTTP transport)
-
-When running in HTTP mode every request to `POST /mcp` must carry the reseller's own API key in one of these headers:
-
-```
-Authorization: Bearer <reseller_api_key>
-```
-or
-```
-X-Registrar-Api-Key: <reseller_api_key>
-```
-
-The server reads the key, passes it into the upstream API envelope for that request only, and never stores it. Requests with a missing or empty key are rejected with `401`.
-
----
-
-## Running
-
-### stdio (local — Claude Desktop, MCP Inspector)
-
-```bash
-REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
-npm start
-```
-
-> In stdio mode there are no HTTP headers, so use a single known API key via `REGISTRAR_API_KEY` env var when using this transport.
-
-### Streamable HTTP (hosted / multi-reseller)
-
-```bash
-REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
-TRANSPORT=http \
-PORT=3000 \
-npm start
-```
-
-The server listens at `http://localhost:3000/mcp`.  
-Each reseller sends their key in `Authorization: Bearer <key>`.  
-A health check endpoint is available at `GET /health`.
-
-### Development (auto-reload)
-
-```bash
-REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
-TRANSPORT=http npm run dev
-```
-
----
-
-## Testing with MCP Inspector
-
-```bash
-npx @modelcontextprotocol/inspector node dist/index.js
-```
-
-Set the environment variables in the Inspector's env panel before connecting.
-
----
-
-## Claude Desktop Integration
-
-For single-user local use with Claude Desktop, add to your `claude_desktop_config.json`:
+Add the following (or merge into an existing `mcpServers` block):
 
 ```json
 {
   "mcpServers": {
-    "registrar": {
-      "command": "node",
-      "args": ["/absolute/path/to/registrar-mcp-server/dist/index.js"],
-      "env": {
-        "REGISTRAR_API_URL": "https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php",
-        "REGISTRAR_API_KEY": "your_reseller_api_key"
+    "domain-reseller": {
+      "url": "https://registrar-mcp.avalonhosting.services/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_RESELLER_API_KEY"
       }
     }
   }
 }
 ```
 
-> For hosted multi-reseller HTTP mode, do not set `REGISTRAR_API_KEY` in env. Each client passes their own key in the `Authorization: Bearer` header instead.
+Restart Claude Desktop. You will see **domain-reseller** listed as a connected tool source.
+
+### Cursor
+
+Create or edit `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` globally:
+
+```json
+{
+  "mcpServers": {
+    "domain-reseller": {
+      "url": "https://registrar-mcp.avalonhosting.services/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_RESELLER_API_KEY"
+      }
+    }
+  }
+}
+```
+
+### Windsurf
+
+Go to **Settings → MCP → Add Server** and enter:
+
+| Field        | Value                                    |
+| ------------ | ---------------------------------------- |
+| URL          | `https://registrar-mcp.avalonhosting.services/mcp` |
+| Header name  | `Authorization`                          |
+| Header value | `Bearer YOUR_RESELLER_API_KEY`           |
+
+### Other MCP clients
+
+Any client that supports **Streamable HTTP MCP transport** can connect:
+
+- **Endpoint**: `POST https://registrar-mcp.avalonhosting.services/mcp`
+- **Required header**: `Authorization: Bearer YOUR_RESELLER_API_KEY`
+
+---
+
+## Example conversations
+
+```
+You:  Is avalon-test.com available?
+AI:   Checking now... avalon-test.com is available ✅
+
+You:  Point example.com to ns1.cloudflare.com and ns2.cloudflare.com
+AI:   Updating nameservers for example.com...
+      ✅ Done. ns1 → ns1.cloudflare.com, ns2 → ns2.cloudflare.com
+
+You:  Renew example.com for 2 years
+AI:   I'm about to renew example.com for 2 years. This will incur a charge.
+      To confirm, reply with "I_CONFIRM" and a unique request ID
+      (or ask me to generate one).
+
+You:  I_CONFIRM — use request ID 550e8400-e29b-41d4-a716-446655440000
+AI:   ✅ example.com renewed for 2 years.
+```
+
+---
+
+## About safety confirmations
+
+For any action that **costs money or cannot easily be undone** — registering, transferring, renewing, deleting a domain, or updating contact details — your AI will pause and ask for explicit confirmation before proceeding.
+
+You will need to:
+
+1. Confirm intent by including `I_CONFIRM` in your reply.
+2. Provide a unique request ID (a UUID — ask the AI to generate one if you don't have one handy).
+
+This prevents accidental domain changes triggered by ambiguous instructions.
+
+---
+
+## Available capabilities
+
+### Domain lookup (read-only)
+
+| Ask your AI…                       | What happens                                          |
+| ---------------------------------- | ----------------------------------------------------- |
+| "Is X available?"                  | Checks domain availability                            |
+| "What nameservers is X using?"     | Returns ns1–ns5                                       |
+| "Show the contact details for X"   | Returns registrant / admin / tech / billing contacts  |
+| "Get the EPP / auth code for X"    | Returns the transfer authorization code               |
+| "Is X locked against transfers?"   | Shows registrar lock status                           |
+| "Sync the status of X"             | Refreshes expiry date and active status from registry |
+| "What's the transfer status of X?" | Returns in-progress transfer state                    |
+| "What does a .com domain cost?"    | Returns TLD pricing                                   |
+
+### Domain management (write — require confirmation)
+
+Actions marked ⚠️ will prompt for `I_CONFIRM` before executing.
+
+| Ask your AI…                          | What happens                                  |
+| ------------------------------------- | --------------------------------------------- |
+| "Register X for N years"              | Registers the domain ⚠️                        |
+| "Transfer X using EPP code XXXX"      | Initiates a transfer ⚠️                        |
+| "Renew X for N years"                 | Renews the domain ⚠️                           |
+| "Change nameservers on X to …"        | Updates ns1–ns5                               |
+| "Update the contact details for X"    | Saves new contact data ⚠️                      |
+| "Lock / unlock X"                     | Toggles the transfer lock                     |
+| "Enable / disable ID protection on X" | Toggles WHOIS privacy                         |
+| "Release X to registrar tag NEW-TAG"  | Releases to another registrar ⚠️               |
+| "Delete X"                            | Submits a deletion request ⚠️ **irreversible** |
+
+---
+
+## Troubleshooting
+
+| Error               | Meaning                                | What to do                                                          |
+| ------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `auth_error`        | Your API key was rejected              | Double-check the key in your AI client config                       |
+| `permission_denied` | Key lacks permission for this action   | Contact Avalon support to verify API key scope                      |
+| `not_found`         | The MCP endpoint URL is wrong          | Confirm the endpoint URL with Avalon                                |
+| `rate_limit`        | Too many requests at once              | Wait a moment and retry                                             |
+| `timeout`           | The registrar took too long to respond | Retry once; contact support if it persists                          |
+| `registrar_error`   | The registrar rejected the request     | Read the message — it will say why (e.g. domain already registered) |
+| `unexpected_error`  | Something unexpected went wrong        | Contact Avalon support and share the full error message             |
+
+---
+
+## Support
+
+- **Avalon Hosting Services**: [avalonhosting.services](https://avalonhosting.services/)
+- **WHMCS Module on Marketplace**: [Domain Reseller Module for WHMCS](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
+- **Module GitHub repository**: [AvalonHostingServices/whmcs-domain-registrar-module](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module)
 
 ---
 
 ## Tool Reference
 
+Full parameter reference for advanced users or direct API integrations.
+
 ### Read Tools
 
-All read tools support a `response_format` parameter: `"markdown"` (default, human-readable) or `"json"` (machine-readable).
+All read tools accept an optional `response_format` parameter: `"markdown"` (default) or `"json"`.
 
 #### `registrar_check_availability`
 Check whether a domain name is available for registration.
@@ -240,7 +291,7 @@ Retrieve TLD pricing for import into WHMCS.
 
 ### Write Tools
 
-Write tools require a `client_request_id` (UUID v4) for idempotency.  
+All write tools require a `client_request_id` (UUID v4) for idempotency.  
 Destructive tools additionally require `confirm: "I_CONFIRM"` as an explicit safety gate.
 
 #### `registrar_register_domain` ⚠️ Destructive
@@ -265,8 +316,8 @@ Initiate a domain transfer. May incur charges.
 
 | Param               | Type          | Required | Description                |
 | ------------------- | ------------- | -------- | -------------------------- |
-| `domainid`          | number        | ✅        |                            |
-| `domainname`        | string        | ✅        |                            |
+| `domainid`          | number        | ✅        | WHMCS domain ID            |
+| `domainname`        | string        | ✅        | Full domain name           |
 | `eppcode`           | string        | ✅        | Transfer auth code         |
 | `regperiod`         | number        | ✅        | Years (1–10)               |
 | `dnsmanagement`     | boolean       | ✅        |                            |
@@ -274,7 +325,7 @@ Initiate a domain transfer. May incur charges.
 | `idprotection`      | boolean       | ✅        |                            |
 | `nameservers`       | string[]      | ✅        | Min 2 nameserver hostnames |
 | `contacts`          | object        | ✅        | Contact map                |
-| `client_request_id` | string (UUID) | ✅        |                            |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key            |
 | `confirm`           | `"I_CONFIRM"` | ✅        |                            |
 
 ---
@@ -282,27 +333,27 @@ Initiate a domain transfer. May incur charges.
 #### `registrar_renew_domain` ⚠️ Destructive
 Renew a domain registration. May incur charges.
 
-| Param               | Type          | Required | Description  |
-| ------------------- | ------------- | -------- | ------------ |
-| `domainid`          | number        | ✅        |              |
-| `domainname`        | string        | ✅        |              |
-| `regperiod`         | number        | ✅        | Years (1–10) |
-| `client_request_id` | string (UUID) | ✅        |              |
-| `confirm`           | `"I_CONFIRM"` | ✅        |              |
+| Param               | Type          | Required | Description      |
+| ------------------- | ------------- | -------- | ---------------- |
+| `domainid`          | number        | ✅        | WHMCS domain ID  |
+| `domainname`        | string        | ✅        | Full domain name |
+| `regperiod`         | number        | ✅        | Years (1–10)     |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key  |
+| `confirm`           | `"I_CONFIRM"` | ✅        |                  |
 
 ---
 
 #### `registrar_set_nameservers`
 Update nameservers for a domain. `ns1` and `ns2` are required.
 
-| Param               | Type          | Required | Description |
-| ------------------- | ------------- | -------- | ----------- |
-| `domainid`          | number        | ✅        |             |
-| `domainname`        | string        | ✅        |             |
-| `ns1`               | string        | ✅        |             |
-| `ns2`               | string        | ✅        |             |
-| `ns3`–`ns5`         | string        | ❌        |             |
-| `client_request_id` | string (UUID) | ✅        |             |
+| Param               | Type          | Required | Description      |
+| ------------------- | ------------- | -------- | ---------------- |
+| `domainid`          | number        | ✅        | WHMCS domain ID  |
+| `domainname`        | string        | ✅        | Full domain name |
+| `ns1`               | string        | ✅        |                  |
+| `ns2`               | string        | ✅        |                  |
+| `ns3`–`ns5`         | string        | ❌        |                  |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key  |
 
 ---
 
@@ -311,13 +362,13 @@ Update contact details for one or more roles.
 
 | Param               | Type          | Required | Description                  |
 | ------------------- | ------------- | -------- | ---------------------------- |
-| `domainid`          | number        | ✅        |                              |
-| `domainname`        | string        | ✅        |                              |
+| `domainid`          | number        | ✅        | WHMCS domain ID              |
+| `domainname`        | string        | ✅        | Full domain name             |
 | `contactdetails`    | object        | ✅        | Map of role → contact fields |
-| `client_request_id` | string (UUID) | ✅        |                              |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key              |
 | `confirm`           | `"I_CONFIRM"` | ✅        |                              |
 
-Contact field keys: `First_Name`, `Last_Name`, `Company_Name`, `Email`, `Address_1`, `Address_2`, `City`, `State`, `Zip`, `Country` (2-letter ISO), `Phone` (E.164 format).
+Contact field keys: `First_Name`, `Last_Name`, `Company_Name`, `Email`, `Address_1`, `Address_2`, `City`, `State`, `Zip`, `Country` (2-letter ISO), `Phone` (E.164 format, e.g. `+14155552671`).
 
 ---
 
@@ -326,10 +377,10 @@ Enable or disable the registrar transfer lock.
 
 | Param               | Type          | Required | Description                         |
 | ------------------- | ------------- | -------- | ----------------------------------- |
-| `domainid`          | number        | ✅        |                                     |
-| `domainname`        | string        | ✅        |                                     |
+| `domainid`          | number        | ✅        | WHMCS domain ID                     |
+| `domainname`        | string        | ✅        | Full domain name                    |
 | `lockstatus`        | boolean       | ✅        | `true` = locked, `false` = unlocked |
-| `client_request_id` | string (UUID) | ✅        |                                     |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key                     |
 
 ---
 
@@ -338,67 +389,83 @@ Enable or disable WHOIS ID protection.
 
 | Param               | Type          | Required | Description                        |
 | ------------------- | ------------- | -------- | ---------------------------------- |
-| `domainid`          | number        | ✅        |                                    |
-| `domainname`        | string        | ✅        |                                    |
+| `domainid`          | number        | ✅        | WHMCS domain ID                    |
+| `domainname`        | string        | ✅        | Full domain name                   |
 | `idprotect`         | boolean       | ✅        | `true` = enable, `false` = disable |
-| `client_request_id` | string (UUID) | ✅        |                                    |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key                    |
 
 ---
 
 #### `registrar_release_domain_tag` ⚠️ Destructive
 Change the IPS tag / release to another registrar (registry-dependent, e.g. `.uk`). May be irreversible.
 
-| Param               | Type          | Required | Description |
-| ------------------- | ------------- | -------- | ----------- |
-| `domainid`          | number        | ✅        |             |
-| `domainname`        | string        | ✅        |             |
-| `newtag`            | string        | ✅        | New IPS tag |
-| `client_request_id` | string (UUID) | ✅        |             |
-| `confirm`           | `"I_CONFIRM"` | ✅        |             |
+| Param               | Type          | Required | Description      |
+| ------------------- | ------------- | -------- | ---------------- |
+| `domainid`          | number        | ✅        | WHMCS domain ID  |
+| `domainname`        | string        | ✅        | Full domain name |
+| `newtag`            | string        | ✅        | New IPS tag      |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key  |
+| `confirm`           | `"I_CONFIRM"` | ✅        |                  |
 
 ---
 
 #### `registrar_request_delete` ⚠️ Destructive — Irreversible
 Submit a domain deletion request. Once processed by the registry this cannot be undone.
 
-| Param               | Type          | Required | Description |
-| ------------------- | ------------- | -------- | ----------- |
-| `domainid`          | number        | ✅        |             |
-| `domainname`        | string        | ✅        |             |
-| `client_request_id` | string (UUID) | ✅        |             |
-| `confirm`           | `"I_CONFIRM"` | ✅        |             |
+| Param               | Type          | Required | Description      |
+| ------------------- | ------------- | -------- | ---------------- |
+| `domainid`          | number        | ✅        | WHMCS domain ID  |
+| `domainname`        | string        | ✅        | Full domain name |
+| `client_request_id` | string (UUID) | ✅        | Idempotency key  |
+| `confirm`           | `"I_CONFIRM"` | ✅        |                  |
 
 ---
 
-## Error Reference
+## Related Documentation
 
-Errors are returned as structured MCP tool errors with a descriptive prefix.
-
-| Prefix                        | Cause                             | Action                                |
-| ----------------------------- | --------------------------------- | ------------------------------------- |
-| `auth_error`                  | Invalid or missing API key (401)  | Check `REGISTRAR_API_KEY`             |
-| `permission_denied`           | Key lacks permission (403)        | Check API key scope                   |
-| `not_found`                   | Endpoint not found (404)          | Check `REGISTRAR_API_URL`             |
-| `rate_limit`                  | Too many requests (429)           | Wait and retry                        |
-| `timeout`                     | Upstream did not respond in time  | Retry once; check network             |
-| `connection_error`            | Could not reach upstream          | Check `REGISTRAR_API_URL` and network |
-| `registrar_error`             | Upstream returned `status: error` | See the message for details           |
-| `upstream_contract_violation` | Response missing `status` field   | Check API implementation              |
-| `unexpected_error`            | Unclassified error                | See full message                      |
+- [Avalon Hosting Services](https://avalonhosting.services/)
+- [WHMCS Module — GitHub](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module)
+- [WHMCS Module — Marketplace](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
+- [Module API Reference](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/API.md)
+- [Module Documentation](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/DOCUMENTATION.md)
 
 ---
 
-## Security Notes
+## For server administrators
 
-- `REGISTRAR_API_KEY` is never echoed in tool outputs or logs.
-- All inputs are validated via Zod `.strict()` schemas — unknown fields are rejected.
-- Destructive tools require explicit `confirm: "I_CONFIRM"` to prevent accidental LLM-triggered mutations.
-- All write tools require a `client_request_id` UUID to prevent duplicate submissions.
-- When using `TRANSPORT=http` locally, bind to `127.0.0.1` and avoid exposing the port publicly without authentication middleware.
+The sections below are for those deploying or maintaining the MCP server itself.
 
----
+### Server environment variables
 
-## Project Structure
+| Variable            | Required | Description                                                                                         |
+| ------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `REGISTRAR_API_URL` | ✅        | Static API endpoint: `https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php` |
+| `TRANSPORT`         | ❌        | `stdio` (default) or `http`                                                                         |
+| `PORT`              | ❌        | HTTP port when `TRANSPORT=http` (default: `3000`)                                                   |
+
+`REGISTRAR_API_KEY` is **not** a server-side env var — each reseller supplies their own key per-request via the `Authorization: Bearer` header.
+
+### Running (Streamable HTTP)
+
+```bash
+REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
+TRANSPORT=http \
+PORT=3000 \
+npm start
+```
+
+Health check: `GET /health`
+
+### Installation from source
+
+```bash
+git clone https://github.com/AvalonHostingServices/whmcs-domain-registrar-module.git
+cd whmcs-domain-registrar-module
+npm install
+npm run build
+```
+
+### Project structure
 
 ```
 src/
@@ -409,32 +476,9 @@ src/
 │   └── common.ts             — Zod schemas (domainid, domainname, contacts, safety tokens)
 ├── services/
 │   ├── registrarClient.ts    — Upstream HTTP client + error mapping
+│   ├── requestContext.ts     — Per-request AsyncLocalStorage for reseller API key
 │   └── errors.ts             — toolError / toolText response helpers
 └── tools/
     ├── readTools.ts          — 8 read-only tools
     └── writeTools.ts         — 9 write tools with safety gates
 ```
-
----
-
-## Related Documentation
-
-### This Repository
-
-- [API.md](./API.md) — Upstream registrar API contract (request envelope, all actions, data shapes)
-
-### WHMCS Module (AvalonHostingServices/whmcs-domain-registrar-module)
-
-- [README.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/README.md) — Module overview and quick start
-- [INSTALL.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/INSTALL.md) — Full installation and WHMCS activation guide
-- [DOCUMENTATION.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/DOCUMENTATION.md) — Central documentation index
-- [API.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/API.md) — Canonical API reference
-- [CHANGELOG.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/CHANGELOG.md) — Version history
-- [SECURITY.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/SECURITY.md) — Security reporting process
-- [CONTRIBUTING.md](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/blob/main/CONTRIBUTING.md) — Contribution guidelines
-
-### External
-
-- [WHMCS Marketplace Listing](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
-- [Avalon Hosting Services](https://avalonhosting.services/)
-- [Model Context Protocol Specification](https://modelcontextprotocol.io/)
