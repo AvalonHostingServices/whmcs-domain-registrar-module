@@ -47,12 +47,29 @@ npm run build
 
 All configuration is via environment variables. No secrets are stored in code.
 
-| Variable            | Required | Description                                       |
-| ------------------- | -------- | ------------------------------------------------- |
-| `REGISTRAR_API_URL` | ✅        | Full URL of the registrar JSON API endpoint       |
-| `REGISTRAR_API_KEY` | ✅        | API key sent in every upstream request envelope   |
-| `TRANSPORT`         | ❌        | `stdio` (default) or `http`                       |
-| `PORT`              | ❌        | HTTP port when `TRANSPORT=http` (default: `3000`) |
+### Server environment variables
+
+| Variable            | Required | Description                                                                                         |
+| ------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `REGISTRAR_API_URL` | ✅        | Static API endpoint: `https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php` |
+| `TRANSPORT`         | ❌        | `stdio` (default) or `http`                                                                         |
+| `PORT`              | ❌        | HTTP port when `TRANSPORT=http` (default: `3000`)                                                   |
+
+> `REGISTRAR_API_KEY` is **not** a server env var. Each reseller supplies their own key per-request (see below).
+
+### Reseller authentication (HTTP transport)
+
+When running in HTTP mode every request to `POST /mcp` must carry the reseller's own API key in one of these headers:
+
+```
+Authorization: Bearer <reseller_api_key>
+```
+or
+```
+X-Registrar-Api-Key: <reseller_api_key>
+```
+
+The server reads the key, passes it into the upstream API envelope for that request only, and never stores it. Requests with a missing or empty key are rejected with `401`.
 
 ---
 
@@ -61,28 +78,30 @@ All configuration is via environment variables. No secrets are stored in code.
 ### stdio (local — Claude Desktop, MCP Inspector)
 
 ```bash
-REGISTRAR_API_URL=https://your-registrar-api.example.com \
-REGISTRAR_API_KEY=your_secret_key \
+REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
 npm start
 ```
 
-### Streamable HTTP (hosted / multi-client)
+> In stdio mode there are no HTTP headers, so use a single known API key via `REGISTRAR_API_KEY` env var when using this transport.
+
+### Streamable HTTP (hosted / multi-reseller)
 
 ```bash
-REGISTRAR_API_URL=https://your-registrar-api.example.com \
-REGISTRAR_API_KEY=your_secret_key \
+REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
 TRANSPORT=http \
 PORT=3000 \
 npm start
 ```
 
-The server will listen at `http://localhost:3000/mcp`.  
+The server listens at `http://localhost:3000/mcp`.  
+Each reseller sends their key in `Authorization: Bearer <key>`.  
 A health check endpoint is available at `GET /health`.
 
 ### Development (auto-reload)
 
 ```bash
-REGISTRAR_API_URL=... REGISTRAR_API_KEY=... npm run dev
+REGISTRAR_API_URL=https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php \
+TRANSPORT=http npm run dev
 ```
 
 ---
@@ -99,7 +118,7 @@ Set the environment variables in the Inspector's env panel before connecting.
 
 ## Claude Desktop Integration
 
-Add to your `claude_desktop_config.json`:
+For single-user local use with Claude Desktop, add to your `claude_desktop_config.json`:
 
 ```json
 {
@@ -108,13 +127,15 @@ Add to your `claude_desktop_config.json`:
       "command": "node",
       "args": ["/absolute/path/to/registrar-mcp-server/dist/index.js"],
       "env": {
-        "REGISTRAR_API_URL": "https://your-registrar-api.example.com",
-        "REGISTRAR_API_KEY": "your_secret_key"
+        "REGISTRAR_API_URL": "https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php",
+        "REGISTRAR_API_KEY": "your_reseller_api_key"
       }
     }
   }
 }
 ```
+
+> For hosted multi-reseller HTTP mode, do not set `REGISTRAR_API_KEY` in env. Each client passes their own key in the `Authorization: Bearer` header instead.
 
 ---
 

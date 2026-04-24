@@ -15,10 +15,13 @@
  * contacts, locks, sync, and pricing.
  *
  * Environment variables:
- *   REGISTRAR_API_URL   — Required. Full URL of the registrar JSON API endpoint.
- *   REGISTRAR_API_KEY   — Required. API key for authentication.
+ *   REGISTRAR_API_URL   — Required. Static URL of the registrar JSON API endpoint.
  *   TRANSPORT           — Optional. 'stdio' (default) or 'http'.
  *   PORT                — Optional. HTTP port when TRANSPORT=http (default: 3000).
+ *
+ * Per-request (HTTP transport only):
+ *   Authorization: Bearer <reseller_api_key>   OR
+ *   X-Registrar-Api-Key: <reseller_api_key>
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -28,9 +31,13 @@ import express from "express";
 
 import { registerReadTools } from "./tools/readTools.js";
 import { registerWriteTools } from "./tools/writeTools.js";
+import { withRequestContext } from "./services/requestContext.js";
 
 // ─── Validate required environment variables at startup ───────────────────────
-const requiredEnvVars = ["REGISTRAR_API_URL", "REGISTRAR_API_KEY"] as const;
+// REGISTRAR_API_URL is the single static endpoint shared across all resellers.
+// REGISTRAR_API_KEY is intentionally NOT required here — each reseller supplies
+// their own key per-request via the Authorization header.
+const requiredEnvVars = ["REGISTRAR_API_URL"] as const;
 for (const key of requiredEnvVars) {
 	if (!process.env[key]) {
 		console.error(`ERROR: Environment variable ${key} is not set.`);
@@ -71,13 +78,47 @@ async function runHTTP(): Promise<void> {
 
 	// Stateless per-request transport — prevents request ID collisions.
 	app.post("/mcp", async (req, res) => {
+		// ── Extract reseller API key from request headers ──────────────────────
+		// Accept either:
+		//   Authorization: Bearer <key>
+		//   X-Registrar-Api-Key: <key>
+		const authHeader = req.headers["authorization"] ?? "";
+		const rawKey =
+			(typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+				? authHeader.slice(7).trim()
+				: (
+						req.headers["x-registrar-api-key"] as string | undefined
+					)?.trim()) ?? "";
+
+		if (!rawKey) {
+			res.status(401).json({
+				error: "auth_error",
+				message:
+					"Missing API key. Supply your reseller key via: " +
+					"Authorization: Bearer <key>  or  X-Registrar-Api-Key: <key>",
+			});
+			return;
+		}
+
+		// Basic sanity guard — prevent trivially malformed keys from reaching upstream.
+		if (rawKey.length > 256) {
+			res.status(401).json({
+				error: "auth_error",
+				message: "API key too long.",
+			});
+			return;
+		}
+
+		// ── Run MCP request inside per-request context carrying the reseller key ─
 		const t = new StreamableHTTPServerTransport({
 			sessionIdGenerator: undefined, // stateless
 			enableJsonResponse: true,
 		});
 		res.on("close", () => t.close());
 		await server.connect(t);
-		await t.handleRequest(req, res, req.body);
+		await withRequestContext(rawKey, () =>
+			t.handleRequest(req, res, req.body),
+		);
 	});
 
 	// Health check endpoint.

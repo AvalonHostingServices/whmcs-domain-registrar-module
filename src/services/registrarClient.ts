@@ -9,8 +9,13 @@
 import axios, { AxiosError } from "axios";
 import { RegistrarResponse } from "../types.js";
 import { REQUEST_TIMEOUT_MS } from "../constants.js";
+import { getRequestApiKey } from "./requestContext.js";
 
-/** The downstream API endpoint, injected via environment variable. */
+/**
+ * The static upstream API endpoint — always
+ * https://manage.avalonhosting.services/modules/addons/domain_reseller/api.php
+ * Injected via REGISTRAR_API_URL environment variable at server startup.
+ */
 function getApiEndpoint(): string {
 	const url = process.env.REGISTRAR_API_URL;
 	if (!url) {
@@ -22,17 +27,12 @@ function getApiEndpoint(): string {
 	return url;
 }
 
-function getApiKey(): string {
-	const key = process.env.REGISTRAR_API_KEY;
-	if (!key) {
-		throw new Error("REGISTRAR_API_KEY environment variable is not set.");
-	}
-	return key;
-}
-
 /**
  * Sends a request to the registrar API using the standard envelope:
  *   { api_key, action, params }
+ *
+ * The api_key is the reseller's own key, extracted from the HTTP request
+ * Authorization header by the server and stored in per-request context.
  *
  * Returns the parsed `data` object on success.
  * Throws a descriptive Error on upstream errors, HTTP errors, or timeouts.
@@ -42,7 +42,8 @@ export async function registrarCall<T = Record<string, unknown>>(
 	params: Record<string, unknown>,
 ): Promise<T> {
 	const endpoint = getApiEndpoint();
-	const apiKey = getApiKey();
+	// Per-request reseller key — never read from global env.
+	const apiKey = getRequestApiKey();
 
 	const body = {
 		api_key: apiKey,
