@@ -3,7 +3,16 @@
 if (!defined("WHMCS")) die("This file cannot be accessed directly");
 
 if (!defined('DRR_VERSION')) {
-    define('DRR_VERSION', '2.1.0');
+    define('DRR_VERSION', '2.2.0');
+}
+
+// GlitchTip project DSN for this module. Fixed and always-on: lets Avalon Hosting
+// Services see transport-level failures (cURL errors, malformed API responses,
+// non-2xx provider responses) across every install of this module and fix them
+// centrally. Never fed request payloads, contact details, or API credentials —
+// only technical failure context. See drr_report_error() below.
+if (!defined('DRR_GLITCHTIP_DSN')) {
+    define('DRR_GLITCHTIP_DSN', 'https://f72aead7349b4eaa9e67073af9f12595@pm.avalonhosting.services/7');
 }
 
 use WHMCS\Domain\TopLevel\ImportItem;
@@ -16,6 +25,75 @@ function domain_reseller_registrar_MetaData() {
         'APIVersion' => DRR_VERSION,
         'Description' => 'This Registrar allows you to offer a wide variety of TLD straight from your Provider System.',
     ];
+}
+
+/**
+ * Reports a technical failure to the module's GlitchTip project using the
+ * Sentry "store" protocol (v7). Never includes request payloads, contact
+ * details, or API credentials — only the action name and diagnostic context
+ * explicitly passed in by the caller. Fails silently: a reporting problem
+ * must never surface to, or interrupt, the WHMCS admin/customer.
+ *
+ * @param string $action  The registrar action or lifecycle event that failed.
+ * @param string $message Short human-readable description of the failure.
+ * @param array  $context Optional extra diagnostic fields (e.g. http_code).
+ */
+function drr_report_error($action, $message, array $context = []) {
+    try {
+        $dsn = parse_url(DRR_GLITCHTIP_DSN);
+        if (!$dsn || empty($dsn['host']) || empty($dsn['user']) || empty($dsn['path'])) {
+            return;
+        }
+
+        $publicKey = $dsn['user'];
+        $projectId = ltrim($dsn['path'], '/');
+        $port = isset($dsn['port']) ? ':' . $dsn['port'] : '';
+        $storeUrl = $dsn['scheme'] . '://' . $dsn['host'] . $port . '/api/' . $projectId . '/store/';
+
+        $event = [
+            'event_id' => bin2hex(random_bytes(16)),
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+            'level' => 'error',
+            'logger' => 'domain_reseller_registrar',
+            'platform' => 'php',
+            'release' => DRR_VERSION,
+            'server_name' => $_SERVER['HTTP_HOST'] ?? php_uname('n'),
+            'message' => $action . ': ' . $message,
+            'tags' => [
+                'action' => $action,
+                'module_version' => DRR_VERSION,
+                'php_version' => PHP_VERSION,
+            ],
+            'extra' => $context,
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $storeUrl);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'X-Sentry-Auth: Sentry sentry_version=7, sentry_key=' . $publicKey
+                . ', sentry_client=whmcs-domain-reseller-registrar/' . DRR_VERSION,
+        ]);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($event));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_exec($ch);
+        curl_close($ch);
+    } catch (\Throwable $e) {
+        // Error reporting must never itself break a registrar call.
+    }
+}
+
+/**
+ * Strips WHMCS's own module-config keys (including the API credentials) out
+ * of a params array before it is forwarded to the provider API or written to
+ * the WHMCS module log, so the API key never appears twice in a request body
+ * or in plaintext inside Module Log entries.
+ */
+function drr_strip_config_params(array $params) {
+    return array_diff_key($params, array_flip(['customApiEndpoint', 'customApiKey', 'moduleLog']));
 }
 
 function domain_reseller_registrar_getConfigArray() {
@@ -52,10 +130,14 @@ function reseller_callAPI($params, $action, $apiParams = []) {
     $moduleLog = $params['moduleLog'];
     $registrarName = 'domain_reseller_registrar';
 
+    if (empty($customApiEndpoint) || empty($customApiKey)) {
+        return ['error' => 'Registrar module is not configured. Please set the API Endpoint and API Key.'];
+    }
+
     ob_start();
-    
+
     $ch = curl_init();
-    
+
     curl_setopt($ch, CURLOPT_URL, $customApiEndpoint);
     curl_setopt($ch, CURLOPT_POST, 1);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -77,9 +159,10 @@ function reseller_callAPI($params, $action, $apiParams = []) {
 
     ob_end_clean();
 
-    
+
 
     if ($response === false) {
+        drr_report_error($action, 'cURL error contacting provider API', ['curl_error' => $curlError]);
         return ['error' => 'cURL Error: ' . $curlError];
     }
 
@@ -90,12 +173,22 @@ function reseller_callAPI($params, $action, $apiParams = []) {
     }
 
     if (json_last_error() !== JSON_ERROR_NONE) {
+        drr_report_error($action, 'Invalid JSON response from provider API', ['http_code' => $httpCode]);
         return ['error' => 'Invalid JSON response from API: ' . $response];
     }
 
     if (isset($decodedResponse['status']) && $decodedResponse['status'] === 'success') {
         return $decodedResponse['data'];
     } else {
+        // A documented business-error response (e.g. "domain in redemption period")
+        // arrives as HTTP 2xx and is expected, not a bug — only non-2xx responses
+        // indicate a real transport/provider-side failure worth reporting.
+        if ($httpCode < 200 || $httpCode >= 300) {
+            drr_report_error($action, 'Provider API returned a non-2xx response', [
+                'http_code' => $httpCode,
+                'message' => $decodedResponse['message'] ?? null,
+            ]);
+        }
         return ['error' => $decodedResponse['message'] ?? 'Unknown API error.', 'details' => $decodedResponse];
     }
 }
@@ -447,13 +540,21 @@ function domain_reseller_registrar_GetRegistrarLock($params) {
         'domainid' => $params['domainid'],
         'domainname' => $params['domainname']
     ];
-    
-    
+
     $response = reseller_callAPI($params, 'GetRegistrarLock', $apiParams);
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
-    return $response;
+
+    // Normalize whatever key the provider used into the single key WHMCS
+    // actually reads, instead of assuming the provider already knows WHMCS's
+    // internal format (see API.md for the documented contract).
+    $lockStatus = $response['lockstatus'] ?? $response['status'] ?? $response['lockenabled'] ?? 'unlocked';
+
+    return [
+        'lockstatus' => $lockStatus,
+        'status' => $lockStatus,
+    ];
 }
 
 function domain_reseller_registrar_SaveRegistrarLock($params) {
@@ -479,11 +580,16 @@ function domain_reseller_registrar_CheckAvailability($params) {
     ];
     
     $response = reseller_callAPI($params, 'CheckAvailability', $apiParams);
-    
+
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
-    
+
+    if (empty($response['status'])) {
+        drr_report_error('CheckAvailability', 'Provider response missing status field');
+        return ['error' => 'Provider did not return an availability status.'];
+    }
+
     return [
         'success' => true,
         'status' => $response['status']
@@ -544,7 +650,7 @@ function domain_reseller_registrar_TransferSync($params) {
 
 function domain_reseller_registrar_RegisterNameserver($params) {
     
-    $response = reseller_callAPI($params, 'RegisterNameserver', $params);
+    $response = reseller_callAPI($params, 'RegisterNameserver', drr_strip_config_params($params));
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -553,7 +659,7 @@ function domain_reseller_registrar_RegisterNameserver($params) {
 
 function domain_reseller_registrar_ModifyNameserver($params) {
 
-    $response = reseller_callAPI($params, 'ModifyNameserver', $params);
+    $response = reseller_callAPI($params, 'ModifyNameserver', drr_strip_config_params($params));
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -562,7 +668,7 @@ function domain_reseller_registrar_ModifyNameserver($params) {
 
 function domain_reseller_registrar_DeleteNameserver($params) {
     
-    $response = reseller_callAPI($params, 'DeleteNameserver', $params);
+    $response = reseller_callAPI($params, 'DeleteNameserver', drr_strip_config_params($params));
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -570,7 +676,7 @@ function domain_reseller_registrar_DeleteNameserver($params) {
 }
 
 function domain_reseller_registrar_GetDNS($params) {
-    $response = reseller_callAPI($params, 'GetDNS', $params);
+    $response = reseller_callAPI($params, 'GetDNS', drr_strip_config_params($params));
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -579,7 +685,7 @@ function domain_reseller_registrar_GetDNS($params) {
 
 function domain_reseller_registrar_SaveDNS($params) {
 
-    $response = reseller_callAPI($params, 'SaveDNS', $params);
+    $response = reseller_callAPI($params, 'SaveDNS', drr_strip_config_params($params));
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -589,7 +695,7 @@ function domain_reseller_registrar_SaveDNS($params) {
 
 function domain_reseller_registrar_GetDomainSuggestions($params) {
 
-    $response = reseller_callAPI($params, 'GetDomainSuggestions', $params);
+    $response = reseller_callAPI($params, 'GetDomainSuggestions', drr_strip_config_params($params));
     
     if (isset($response['error'])) {
         return ['error' => $response['error']];

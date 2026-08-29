@@ -67,7 +67,6 @@ function drr_check_update($vars) {
             $downloadUrl = $updateData['download_url'] ?? '';
 
             if ($latestVersion && $downloadUrl && version_compare($latestVersion, DRR_VERSION, '>')) {
-                $targetDir = dirname(__DIR__); // modules/registrars
                 $zipFile = tempnam(sys_get_temp_dir(), 'drr_') . '.zip';
 
                 $dlCh = curl_init();
@@ -119,6 +118,9 @@ function drr_check_update($vars) {
             }
         }
     } catch (\Exception $e) {
+        if (function_exists('drr_report_error')) {
+            drr_report_error('check_module_update', $e->getMessage());
+        }
         logActivity(($moduleName ?? 'domain_reseller_registrar') . " Registrar Auto-Update Error: " . $e->getMessage());
     }
 }
