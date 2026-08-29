@@ -2,6 +2,10 @@
 
 if (!defined("WHMCS")) die("This file cannot be accessed directly");
 
+if (!defined('DRR_VERSION')) {
+    define('DRR_VERSION', '2.1.0');
+}
+
 use WHMCS\Domain\TopLevel\ImportItem;
 use WHMCS\Results\ResultsList;
 use WHMCS\Database\Capsule;
@@ -9,7 +13,7 @@ use WHMCS\Database\Capsule;
 function domain_reseller_registrar_MetaData() {
     return [
         'DisplayName' => 'Avalon Hosting Services',
-        'APIVersion' => '1.0.0',
+        'APIVersion' => DRR_VERSION,
         'Description' => 'This Registrar allows you to offer a wide variety of TLD straight from your Provider System.',
     ];
 }
@@ -127,7 +131,7 @@ function domain_reseller_registrar_RegisterDomain($params) {
                 'address2' => $params['techaddress2'],
                 'city' => $params['techcity'],
                 'state' => $params['techstate'],
-                'postcode' => $params['adminpostcode'],
+                'postcode' => $params['techpostcode'],
                 'country' => $params['techcountry'],
                 'phonenumber' => $params['techphonenumber'],
                 'email' => $params['techemail'],
@@ -391,7 +395,7 @@ function domain_reseller_registrar_TransferDomain($params) {
                 'address2' => $params['techaddress2'],
                 'city' => $params['techcity'],
                 'state' => $params['techstate'],
-                'postcode' => $params['adminpostcode'],
+                'postcode' => $params['techpostcode'],
                 'country' => $params['techcountry'],
                 'phonenumber' => $params['techphonenumber'],
                 'email' => $params['techemail'],
@@ -609,6 +613,7 @@ function domain_reseller_registrar_GetTldPricing($params) {
     }
 
     $tldsData = $response['tlds'] ?? [];
+    $tldFeatures = $response['tld_features'] ?? [];
     $currency = $response['currency'] ?? null;
 
     if (empty($tldsData)) {
@@ -674,7 +679,9 @@ function domain_reseller_registrar_GetTldPricing($params) {
             $item->setYears($availableYears);
         }
 
-        $item->setEppRequired(true);
+        // Whether a TLD needs an EPP code is a property of the TLD, so it comes
+        // from the provider per extension rather than being assumed for all.
+        $item->setEppRequired(!empty($tldFeatures[$tld]['eppcode']));
 
         $results[] = $item;
     }
