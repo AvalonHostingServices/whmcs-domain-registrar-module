@@ -3,7 +3,7 @@
 if (!defined("WHMCS")) die("This file cannot be accessed directly");
 
 if (!defined('DRR_VERSION')) {
-    define('DRR_VERSION', '2.2.0');
+    define('DRR_VERSION', '2.3.0');
 }
 
 // GlitchTip project DSN for this module. Fixed and always-on: lets Avalon Hosting
@@ -13,6 +13,14 @@ if (!defined('DRR_VERSION')) {
 // only technical failure context. See drr_report_error() below.
 if (!defined('DRR_GLITCHTIP_DSN')) {
     define('DRR_GLITCHTIP_DSN', 'https://f72aead7349b4eaa9e67073af9f12595@pm.avalonhosting.services/7');
+}
+
+// Self-update (see hooks.php drr_check_update()) always pulls from this
+// repository's GitHub Releases — a separate, independently-versioned
+// distribution channel from the reseller's own API. The API is never
+// trusted to supply update code.
+if (!defined('DRR_GITHUB_REPO')) {
+    define('DRR_GITHUB_REPO', 'AvalonHostingServices/whmcs-domain-registrar-module');
 }
 
 use WHMCS\Domain\TopLevel\ImportItem;
@@ -25,6 +33,35 @@ function domain_reseller_registrar_MetaData() {
         'APIVersion' => DRR_VERSION,
         'Description' => 'This Registrar allows you to offer a wide variety of TLD straight from your Provider System.',
     ];
+}
+
+if (!function_exists('drr_http_request')) {
+    /**
+     * Thin, mockable wrapper around a single cURL request. Exists as one seam
+     * so every network call in this module (provider API, GlitchTip
+     * reporting, GitHub release checks/downloads) shares one implementation,
+     * and so tests can stub it out without touching real sockets — see
+     * tests/bootstrap.php.
+     *
+     * @param array $curlOptions CURLOPT_* => value pairs, applied via curl_setopt_array.
+     * @return array{response: string|false, error: string, errno: int, http_code: int}
+     */
+    function drr_http_request(array $curlOptions) {
+        $ch = curl_init();
+        curl_setopt_array($ch, $curlOptions);
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        $errno = curl_errno($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [
+            'response' => $response,
+            'error' => $error,
+            'errno' => $errno,
+            'http_code' => $httpCode,
+        ];
+    }
 }
 
 /**
@@ -67,20 +104,19 @@ function drr_report_error($action, $message, array $context = []) {
             'extra' => $context,
         ];
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $storeUrl);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'X-Sentry-Auth: Sentry sentry_version=7, sentry_key=' . $publicKey
-                . ', sentry_client=whmcs-domain-reseller-registrar/' . DRR_VERSION,
+        drr_http_request([
+            CURLOPT_URL => $storeUrl,
+            CURLOPT_POST => 1,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'X-Sentry-Auth: Sentry sentry_version=7, sentry_key=' . $publicKey
+                    . ', sentry_client=whmcs-domain-reseller-registrar/' . DRR_VERSION,
+            ],
+            CURLOPT_POSTFIELDS => json_encode($event),
+            CURLOPT_TIMEOUT => 5,
+            CURLOPT_CONNECTTIMEOUT => 3,
         ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($event));
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-        curl_exec($ch);
-        curl_close($ch);
     } catch (\Throwable $e) {
         // Error reporting must never itself break a registrar call.
     }
@@ -121,49 +157,137 @@ function domain_reseller_registrar_getConfigArray() {
             'Type' => 'yesno',
             'Description' => 'Check if you want to enable module log.',
         ],
+        'autoUpdate' => [
+            'FriendlyName' => 'Automatic Updates',
+            'Type' => 'yesno',
+            'Default' => 'on',
+            'Description' => 'Automatically install new module versions published on GitHub (checked once daily). Uncheck to manage updates manually.',
+        ],
     ];
 }
+
+/**
+ * Best-effort locale detection for the current WHMCS request. WHMCS does not
+ * document a guaranteed key for this in registrar-module $params, so this
+ * checks every source that might carry it and falls back to English. Used to
+ * (a) tell the remote API what locale to localize its `message` text in, and
+ * (b) pick among this module's own small set of hardcoded fallback strings.
+ */
+function drr_current_locale(array $params) {
+    $candidate = $params['language'] ?? $_SESSION['Language'] ?? $_SESSION['adminlang'] ?? 'english';
+    $candidate = strtolower(trim((string) $candidate));
+    return $candidate !== '' ? $candidate : 'english';
+}
+
+/**
+ * Translates one of this module's own hardcoded fallback strings (transport
+ * errors, config errors). Only covers strings this module generates itself —
+ * everything from the provider API (`message`) is expected to already be
+ * localized upstream from the `locale` field sent on every request; see
+ * API.md.
+ *
+ * Currently English-only: add a locale key per string below as translations
+ * become available. Unknown locales fall back to English.
+ */
+function drr_t($key, $locale, array $vars = []) {
+    static $strings = [
+        'not_configured' => [
+            'english' => 'Registrar module is not configured. Please set the API Endpoint and API Key.',
+        ],
+        'curl_error' => [
+            'english' => 'cURL Error: :detail',
+        ],
+        'invalid_json' => [
+            'english' => 'Invalid JSON response from API: :detail',
+        ],
+        'unknown_api_error' => [
+            'english' => 'Unknown API error.',
+        ],
+        'no_availability_status' => [
+            'english' => 'Provider did not return an availability status.',
+        ],
+        'no_tld_pricing' => [
+            'english' => 'No TLD pricing data available from provider.',
+        ],
+        'no_currency_info' => [
+            'english' => 'No currency information available.',
+        ],
+    ];
+
+    $entry = $strings[$key] ?? null;
+    if ($entry === null) {
+        return $key;
+    }
+
+    $text = $entry[strtolower((string) $locale)] ?? $entry['english'];
+
+    foreach ($vars as $name => $value) {
+        $text = str_replace(':' . $name, (string) $value, $text);
+    }
+
+    return $text;
+}
+
+// Actions whose response is a flat JSON object (no status/data envelope) —
+// success and failure both arrive as HTTP 200. Documented in API.md; the
+// caller distinguishes outcome via its own `error`/`failed` field.
+const DRR_FLAT_RESPONSE_ACTIONS = ['Sync', 'TransferSync'];
 
 function reseller_callAPI($params, $action, $apiParams = []) {
     $customApiEndpoint = $params['customApiEndpoint'];
     $customApiKey = $params['customApiKey'];
     $moduleLog = $params['moduleLog'];
     $registrarName = 'domain_reseller_registrar';
+    $locale = drr_current_locale($params);
 
     if (empty($customApiEndpoint) || empty($customApiKey)) {
-        return ['error' => 'Registrar module is not configured. Please set the API Endpoint and API Key.'];
+        return ['error' => drr_t('not_configured', $locale)];
     }
+
+    $payload = json_encode([
+        'api_key' => $customApiKey,
+        'action' => $action,
+        'locale' => $locale,
+        'params' => $apiParams,
+    ]);
 
     ob_start();
 
-    $ch = curl_init();
+    // Retried once, and only when the request never reached the provider at
+    // all (DNS/connect failure) — never on a timeout mid-request or any
+    // response we did receive, since register/transfer/renew are not safe to
+    // resend blind.
+    $retryableErrnos = [CURLE_COULDNT_RESOLVE_PROXY, CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT];
+    $maxAttempts = 2;
+    $result = ['response' => false, 'error' => '', 'errno' => 0, 'http_code' => 0];
 
-    curl_setopt($ch, CURLOPT_URL, $customApiEndpoint);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json',
-    ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'api_key' => $customApiKey,
-        'action' => $action,
-        'params' => $apiParams,
-    ]));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        $result = drr_http_request([
+            CURLOPT_URL => $customApiEndpoint,
+            CURLOPT_POST => 1,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_TIMEOUT => 60,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
 
-    $response = curl_exec($ch);
-    $curlError = curl_error($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+        $isRetryable = $result['response'] === false && in_array($result['errno'], $retryableErrnos, true);
+        if (!$isRetryable || $attempt === $maxAttempts) {
+            break;
+        }
+        usleep(300000);
+    }
+
+    $response = $result['response'];
+    $curlError = $result['error'];
+    $httpCode = $result['http_code'];
 
     ob_end_clean();
 
-
-
     if ($response === false) {
         drr_report_error($action, 'cURL error contacting provider API', ['curl_error' => $curlError]);
-        return ['error' => 'cURL Error: ' . $curlError];
+        return ['error' => drr_t('curl_error', $locale, ['detail' => $curlError])];
     }
 
     $decodedResponse = json_decode($response, true);
@@ -174,75 +298,60 @@ function reseller_callAPI($params, $action, $apiParams = []) {
 
     if (json_last_error() !== JSON_ERROR_NONE) {
         drr_report_error($action, 'Invalid JSON response from provider API', ['http_code' => $httpCode]);
-        return ['error' => 'Invalid JSON response from API: ' . $response];
+        return ['error' => drr_t('invalid_json', $locale, ['detail' => $response])];
+    }
+
+    // Sync/TransferSync use a flat response shape with no status/data
+    // envelope — hand the decoded body straight to the caller instead of
+    // looking for a `status` key that will never be there.
+    if (in_array($action, DRR_FLAT_RESPONSE_ACTIONS, true)) {
+        if ($httpCode >= 200 && $httpCode < 300) {
+            return $decodedResponse;
+        }
+        drr_report_error($action, 'Provider API returned a non-2xx response for a flat-envelope action', ['http_code' => $httpCode]);
+        return ['error' => $decodedResponse['error'] ?? $decodedResponse['message'] ?? drr_t('unknown_api_error', $locale)];
     }
 
     if (isset($decodedResponse['status']) && $decodedResponse['status'] === 'success') {
         return $decodedResponse['data'];
     } else {
-        // A documented business-error response (e.g. "domain in redemption period")
-        // arrives as HTTP 2xx and is expected, not a bug — only non-2xx responses
-        // indicate a real transport/provider-side failure worth reporting.
-        if ($httpCode < 200 || $httpCode >= 300) {
-            drr_report_error($action, 'Provider API returned a non-2xx response', [
+        // Per the provider's documented contract, EVERY business error — not
+        // just genuine transport/provider failures — arrives as a non-2xx
+        // HTTP status with a well-formed {"status":"error","message":"..."}
+        // body (e.g. "domain in redemption period"). So HTTP status alone
+        // can no longer tell the two apart; only a response that ISN'T a
+        // well-formed documented error (missing status/message, or an
+        // unexpected status value) indicates a real anomaly worth reporting.
+        $isDocumentedBusinessError = ($decodedResponse['status'] ?? null) === 'error' && isset($decodedResponse['message']);
+        if (($httpCode < 200 || $httpCode >= 300) && !$isDocumentedBusinessError) {
+            drr_report_error($action, 'Provider API returned an unexpected non-2xx response', [
                 'http_code' => $httpCode,
                 'message' => $decodedResponse['message'] ?? null,
             ]);
         }
-        return ['error' => $decodedResponse['message'] ?? 'Unknown API error.', 'details' => $decodedResponse];
+        $errorResult = ['error' => $decodedResponse['message'] ?? drr_t('unknown_api_error', $locale), 'details' => $decodedResponse];
+        if (!empty($decodedResponse['error_code'])) {
+            $errorResult['error_code'] = $decodedResponse['error_code'];
+        }
+        return $errorResult;
     }
 }
 
 function domain_reseller_registrar_RegisterDomain($params) {
+    // The provider API does not accept contact/WHOIS data on this action — it
+    // pulls that from the reseller's own account, not from the registering
+    // client's WHMCS profile — so only the fields it documents are sent. See
+    // API.md#registerdomain.
     $apiParams = [
         'domainid' => $params['domainid'],
         'domainname' => $params['domainname'],
         'regperiod' => $params['regperiod'],
+        'nameservers' => array_values(array_filter([
+            $params['ns1'] ?? '', $params['ns2'] ?? '', $params['ns3'] ?? '', $params['ns4'] ?? '', $params['ns5'] ?? '',
+        ])),
         'dnsmanagement' => $params['dnsmanagement'],
         'emailforwarding' => $params['emailforwarding'],
         'idprotection' => $params['idprotection'],
-        'contacts' => [
-            'registrant' => $params,
-            'admin' => [
-                'firstname' => $params['adminfirstname'],
-                'lastname' => $params['adminlastname'],
-                'companyname' => $params['admincompanyname'],
-                'address1' => $params['adminaddress1'],
-                'address2' => $params['adminaddress2'],
-                'city' => $params['admincity'],
-                'state' => $params['adminstate'],
-                'postcode' => $params['adminpostcode'],
-                'country' => $params['admincountry'],
-                'phonenumber' => $params['adminphonenumber'],
-                'email' => $params['adminemail'],
-            ],
-            'tech' => [
-                'firstname' => $params['techfirstname'],
-                'lastname' => $params['techlastname'],
-                'companyname' => $params['techcompanyname'],
-                'address1' => $params['techaddress1'],
-                'address2' => $params['techaddress2'],
-                'city' => $params['techcity'],
-                'state' => $params['techstate'],
-                'postcode' => $params['techpostcode'],
-                'country' => $params['techcountry'],
-                'phonenumber' => $params['techphonenumber'],
-                'email' => $params['techemail'],
-            ],
-            'billing' => [
-                'firstname' => $params['billingfirstname'],
-                'lastname' => $params['billinglastname'],
-                'companyname' => $params['billingcompanyname'],
-                'address1' => $params['billingaddress1'],
-                'address2' => $params['billingaddress2'],
-                'city' => $params['billingcity'],
-                'state' => $params['billingstate'],
-                'postcode' => $params['billingpostcode'],
-                'country' => $params['billingcountry'],
-                'phonenumber' => $params['billingphonenumber'],
-                'email' => $params['billingemail'],
-            ],
-        ],
     ];
 
     $response = reseller_callAPI($params, 'RegisterDomain', $apiParams);
@@ -298,6 +407,40 @@ function domain_reseller_registrar_SaveNameservers($params) {
     return isset($response['error']) ? ['error' => $response['error']] : ['success' => true];
 }
 
+/**
+ * Normalizes one contact role's fields from the provider's response into the
+ * labels WHMCS expects. The provider's GetContactDetails is a passthrough of
+ * WHMCS's own DomainGetWhoisInfo format — space-separated keys like
+ * "First Name" / "Email Address" / "Phone Number" / "Postcode" — so those are
+ * checked first. Underscored/alternate spellings are kept as fallbacks per
+ * the project's existing fallback-chain convention, in case a different
+ * backend or a future endpoint varies. See API.md#getcontactdetails.
+ */
+function drr_normalize_contact(array $contact) {
+    $firstName = $contact['First Name'] ?? $contact['First_Name'] ?? '';
+    $lastName = $contact['Last Name'] ?? $contact['Last_Name'] ?? '';
+
+    if ($firstName === '' && $lastName === '' && !empty($contact['Full_Name'])) {
+        $nameParts = explode(' ', $contact['Full_Name']);
+        $firstName = $nameParts[0];
+        $lastName = end($nameParts);
+    }
+
+    return [
+        'Company Name' => $contact['Company Name'] ?? $contact['Company_Name'] ?? '',
+        'First Name'   => $firstName,
+        'Last Name'    => $lastName,
+        'Address 1'    => $contact['Address 1'] ?? $contact['Address'] ?? $contact['Address1'] ?? $contact['Address_1'] ?? '',
+        'Address 2'    => $contact['Address 2'] ?? $contact['Address2'] ?? $contact['Address_2'] ?? '',
+        'Email'        => $contact['Email Address'] ?? $contact['Email'] ?? '',
+        'City'         => $contact['City'] ?? '',
+        'State'        => $contact['State'] ?? '',
+        'Zip'          => $contact['Postcode'] ?? $contact['Zip'] ?? '',
+        'Country'      => $contact['Country'] ?? '',
+        'Phone'        => $contact['Phone Number'] ?? $contact['Phone'] ?? $contact['Phone_Number'] ?? '',
+    ];
+}
+
 function domain_reseller_registrar_GetContactDetails($params)
 {
     $apiParams = [
@@ -312,105 +455,23 @@ function domain_reseller_registrar_GetContactDetails($params)
     }
 
     $results = [];
-    
+
     if (isset($response['Registrant'])) {
-        $reg = $response['Registrant'];
-        if(isset($reg['Full_Name'])){
-            $nameParts = explode(' ' , $reg['Full_Name']);
-        }
-        $results['Registrant'] = [
-            'Company Name'  => $reg['Company_Name'] ?? '',
-            'First Name'    => isset($nameParts) ? $nameParts[0] : ($reg['First_Name'] ?? ''),
-            'Last Name'     => isset($nameParts) ? end($nameParts) : ($reg['Last_Name'] ?? ''),
-            'Address 1'     => $reg['Address'] ?? $reg['Address1'] ?? $reg['Address_1'] ?? '',
-            'Address 2'     => $reg['Address2'] ?? $reg['Address_2'] ?? '',
-            'Email'         => $reg['Email'] ?? '',
-            'City'          => $reg['City'] ?? '',
-            'State'         => $reg['State'] ?? '',
-            'Zip'      => $reg['Zip'] ?? $reg['Postcode'] ?? '',
-            'Country'       => $reg['Country'] ?? '',
-            'Phone' => $reg['Phone'] ?? $reg['Phone_Number'] ?? '',
-        ];
+        $results['Registrant'] = drr_normalize_contact($response['Registrant']);
     }
 
     if (isset($response['Billing'])) {
-        $bill = $response['Billing'];
-        if(isset($bill['Full_Name'])){
-            $nameParts = explode(' ' , $bill['Full_Name']);
-        }
-        $results['Billing'] = [
-            'Company Name'  => $bill['Company_Name'] ?? '',
-            'First Name'    => isset($nameParts) ? $nameParts[0] : ($bill['First_Name'] ?? ''),
-            'Last Name'     => isset($nameParts) ? end($nameParts) : ($bill['Last_Name'] ?? ''),
-            'Address 1'     => $bill['Address'] ?? $bill['Address1'] ?? $bill['Address_1'] ?? '',
-            'Address 2'     => $bill['Address2'] ?? $bill['Address_2'] ?? '',
-            'Email'         => $bill['Email'] ?? '',
-            'City'          => $bill['City'] ?? '',
-            'State'         => $bill['State'] ?? '',
-            'Zip'      => $bill['Zip'] ?? $bill['Postcode'] ?? '',
-            'Country'       => $bill['Country'] ?? '',
-            'Phone' => $bill['Phone_Number'] ?? $bill['Phone'] ?? '',
-        ];
+        $results['Billing'] = drr_normalize_contact($response['Billing']);
     }
 
     if (isset($response['Technical'])) {
-        $tech = $response['Technical'];
-        if(isset($tech['Full_Name'])){
-            $nameParts = explode(' ' , $tech['Full_Name']);
-        }
-        $results['Technical'] = [
-            'Company Name'  => $tech['Company_Name'] ?? '',
-            'First Name'    => isset($nameParts) ? $nameParts[0] : ($tech['First_Name'] ?? ''),
-            'Last Name'     => isset($nameParts) ? end($nameParts) : ($tech['Last_Name'] ?? ''),
-            'Address 1'     => $tech['Address'] ?? $tech['Address1'] ?? $tech['Address_1'] ?? '',
-            'Address 2'     => $tech['Address2'] ?? $tech['Address_2'] ?? '',
-            'Email'         => $tech['Email'] ?? '',
-            'City'          => $tech['City'] ?? '',
-            'State'         => $tech['State'] ?? '',
-            'Zip'      => $tech['Zip'] ?? $tech['Postcode'] ?? '',
-            'Country'       => $tech['Country'] ?? '',
-            'Phone' => $tech['Phone_Number'] ?? $tech['Phone'] ?? '',
-        ];
+        $results['Technical'] = drr_normalize_contact($response['Technical']);
+    } elseif (isset($response['Tech'])) {
+        $results['Tech'] = drr_normalize_contact($response['Tech']);
     }
-    else if (isset($response['Tech'])) {
-        $tech = $response['Tech'];
-        if(isset($tech['Full_Name'])){
-            $nameParts = explode(' ' , $tech['Full_Name']);
-        }
-        $results['Tech'] = [
-            'Company Name'  => $tech['Company_Name'] ?? '',
-            'First Name'    => isset($nameParts) ? $nameParts[0] : ($tech['First_Name'] ?? ''),
-            'Last Name'     => isset($nameParts) ? end($nameParts) : ($tech['Last_Name'] ?? ''),
-            'Address 1'     => $tech['Address'] ?? $tech['Address1'] ?? $tech['Address_1'] ?? '',
-            'Address 2'     => $tech['Address2'] ?? $tech['Address_2'] ?? '',
-            'Email'         => $tech['Email'] ?? '',
-            'City'          => $tech['City'] ?? '',
-            'State'         => $tech['State'] ?? '',
-            'Zip'      => $tech['Zip'] ?? $tech['Postcode'] ?? '',
-            'Country'       => $tech['Country'] ?? '',
-            'Phone' => $tech['Phone_Number'] ?? $tech['Phone'] ?? '',
-        ];
-    }
-    
 
     if (isset($response['Admin'])) {
-        $admin = $response['Admin'];
-        if(isset($admin['Full_Name'])){
-            $nameParts = explode(' ' , $admin['Full_Name']);
-        }
-        $results['Admin'] = [
-            'Company Name'  => $admin['Company_Name'] ?? '',
-            'First Name'    => isset($nameParts) ? $nameParts[0] : ($admin['First_Name'] ?? ''),
-            'Last Name'     => isset($nameParts) ? end($nameParts) : ($admin['Last_Name'] ?? ''),
-            'Address 1'     => $admin['Address'] ?? $admin['Address1'] ?? $admin['Address_1'] ?? '',
-            'Address 2'     => $admin['Address2'] ?? $admin['Address_2'] ?? '',
-            'Email'         => $admin['Email'] ?? '',
-            'City'          => $admin['City'] ?? '',
-            'State'         => $admin['State'] ?? '',
-            'Zip'      => $admin['Zip'] ?? $admin['Postcode'] ?? '',
-            'Country'       => $admin['Country'] ?? '',
-            'Phone' => $admin['Phone_Number'] ?? $admin['Phone'] ?? '',
-        ];
+        $results['Admin'] = drr_normalize_contact($response['Admin']);
     }
 
     return $results;
@@ -454,59 +515,18 @@ function domain_reseller_registrar_GetEPPCode($params) {
 }
 
 function domain_reseller_registrar_TransferDomain($params) {
+    // Same rationale as RegisterDomain — no contacts object; see API.md#transferdomain.
     $apiParams = [
         'domainid' => $params['domainid'],
         'domainname' => $params['domainname'],
-        'nameservers' => array_filter([
-            $params['ns1'], $params['ns2'], $params['ns3'], $params['ns4'], $params['ns5']
-        ]),
+        'nameservers' => array_values(array_filter([
+            $params['ns1'] ?? '', $params['ns2'] ?? '', $params['ns3'] ?? '', $params['ns4'] ?? '', $params['ns5'] ?? '',
+        ])),
         'eppcode' => $params['eppcode'],
         'regperiod' => $params['regperiod'],
         'dnsmanagement' => $params['dnsmanagement'],
         'emailforwarding' => $params['emailforwarding'],
         'idprotection' => $params['idprotection'],
-        'contacts' => [
-            'registrant' => $params,
-            'admin' => [
-                'firstname' => $params['adminfirstname'],
-                'lastname' => $params['adminlastname'],
-                'companyname' => $params['admincompanyname'],
-                'address1' => $params['adminaddress1'],
-                'address2' => $params['adminaddress2'],
-                'city' => $params['admincity'],
-                'state' => $params['adminstate'],
-                'postcode' => $params['adminpostcode'],
-                'country' => $params['admincountry'],
-                'phonenumber' => $params['adminphonenumber'],
-                'email' => $params['adminemail'],
-            ],
-            'tech' => [
-                'firstname' => $params['techfirstname'],
-                'lastname' => $params['techlastname'],
-                'companyname' => $params['techcompanyname'],
-                'address1' => $params['techaddress1'],
-                'address2' => $params['techaddress2'],
-                'city' => $params['techcity'],
-                'state' => $params['techstate'],
-                'postcode' => $params['techpostcode'],
-                'country' => $params['techcountry'],
-                'phonenumber' => $params['techphonenumber'],
-                'email' => $params['techemail'],
-            ],
-            'billing' => [
-                'firstname' => $params['billingfirstname'],
-                'lastname' => $params['billinglastname'],
-                'companyname' => $params['billingcompanyname'],
-                'address1' => $params['billingaddress1'],
-                'address2' => $params['billingaddress2'],
-                'city' => $params['billingcity'],
-                'state' => $params['billingstate'],
-                'postcode' => $params['billingpostcode'],
-                'country' => $params['billingcountry'],
-                'phonenumber' => $params['billingphonenumber'],
-                'email' => $params['billingemail'],
-            ],
-        ],
     ];
 
     $response = reseller_callAPI($params, 'TransferDomain', $apiParams);
@@ -587,7 +607,7 @@ function domain_reseller_registrar_CheckAvailability($params) {
 
     if (empty($response['status'])) {
         drr_report_error('CheckAvailability', 'Provider response missing status field');
-        return ['error' => 'Provider did not return an availability status.'];
+        return ['error' => drr_t('no_availability_status', drr_current_locale($params))];
     }
 
     return [
@@ -605,8 +625,11 @@ function domain_reseller_registrar_Sync($params) {
     ];
 
     $response = reseller_callAPI($params, 'Sync', $apiParams);
-    
-    if (isset($response['error'])) {
+
+    // Sync returns a flat body with an always-present `error` key — empty
+    // string on success — so this must check for a non-empty message, not
+    // mere key presence.
+    if (!empty($response['error'])) {
         return ['error' => $response['error']];
     }
 
@@ -628,8 +651,9 @@ function domain_reseller_registrar_TransferSync($params) {
     ];
 
     $response = reseller_callAPI($params, 'TransferSync', $apiParams);
-    
-    if (isset($response['error'])) {
+
+    // Same flat-body caveat as Sync — `error` is always present, empty on success.
+    if (!empty($response['error'])) {
         return [
             'completed' => false,
             'expirydate' => '',
@@ -704,16 +728,48 @@ function domain_reseller_registrar_GetDomainSuggestions($params) {
     return $response;
 }
 
+/**
+ * Reads one year's price from a register/renew/transfer pricing block. The
+ * provider keys years as plain numbers ("1", "2" — see API.md#gettldpricing);
+ * "1yr"-style keys are accepted too, defensively, per this project's existing
+ * fallback-chain convention.
+ */
+function drr_tld_year_price(array $pricingForType, $year) {
+    $price = $pricingForType[(string) $year] ?? $pricingForType[$year . 'yr'] ?? null;
+    return $price !== null ? (float) $price : null;
+}
+
+/**
+ * Collects every year key referenced across register/renew/transfer for one
+ * TLD, tolerant of both "1" and "1yr" spellings.
+ */
+function drr_tld_available_years(array $pricing) {
+    $years = [];
+    foreach (['register', 'renew', 'transfer'] as $type) {
+        if (isset($pricing[$type]) && is_array($pricing[$type])) {
+            foreach (array_keys($pricing[$type]) as $yearKey) {
+                $year = (int) preg_replace('/\D+/', '', (string) $yearKey);
+                if ($year > 0) {
+                    $years[] = $year;
+                }
+            }
+        }
+    }
+    $years = array_unique($years);
+    sort($years);
+    return $years;
+}
+
 function domain_reseller_registrar_GetTldPricing($params) {
-    
+
     $activeCurrency = Capsule::table('tblcurrencies')->where('default', 1)->first();
     $currencyCode = $activeCurrency ? $activeCurrency->code : 'USD';
-    
+
     $apiParams = [
         'currency' => $currencyCode
     ];
     $response = reseller_callAPI($params, 'GetTldPricing', $apiParams);
-    
+
     if (isset($response['error'])) {
         return ['error' => $response['error']];
     }
@@ -723,35 +779,32 @@ function domain_reseller_registrar_GetTldPricing($params) {
     $currency = $response['currency'] ?? null;
 
     if (empty($tldsData)) {
-        return ['error' => 'No TLD pricing data available from provider.'];
+        return ['error' => drr_t('no_tld_pricing', drr_current_locale($params))];
     }
 
     if (!$currency) {
-        return ['error' => 'No currency information available.'];
+        return ['error' => drr_t('no_currency_info', drr_current_locale($params))];
     }
 
     $results = new ResultsList;
 
-    foreach ($tldsData as $tld => $pricing) {
-        $registerPrice = isset($pricing['register']['1yr']) ? (float)$pricing['register']['1yr'] : null;
-        $renewPrice = isset($pricing['renew']['1yr']) ? (float)$pricing['renew']['1yr'] : null;
-        $transferPrice = isset($pricing['transfer']['1yr']) ? (float)$pricing['transfer']['1yr'] : null;
+    foreach ($tldsData as $rawTld => $pricing) {
+        // The provider keys TLDs with a leading dot (".com"); WHMCS's importer
+        // expects the bare extension.
+        $tld = ltrim((string) $rawTld, '.');
+
+        $registerPrice = isset($pricing['register']) && is_array($pricing['register'])
+            ? drr_tld_year_price($pricing['register'], 1) : null;
+        $renewPrice = isset($pricing['renew']) && is_array($pricing['renew'])
+            ? drr_tld_year_price($pricing['renew'], 1) : null;
+        $transferPrice = isset($pricing['transfer']) && is_array($pricing['transfer'])
+            ? drr_tld_year_price($pricing['transfer'], 1) : null;
 
         if ($registerPrice === null || $registerPrice <= 0) {
             continue;
         }
 
-        $availableYears = [];
-        foreach (['register', 'renew', 'transfer'] as $type) {
-            if (isset($pricing[$type]) && is_array($pricing[$type])) {
-                foreach (array_keys($pricing[$type]) as $yearKey) {
-                    $year = (int)str_replace('yr', '', $yearKey);
-                    $availableYears[] = $year;
-                }
-            }
-        }
-        $availableYears = array_unique($availableYears);
-        sort($availableYears);
+        $availableYears = drr_tld_available_years($pricing);
 
         $minYears = !empty($availableYears) ? min($availableYears) : 1;
         $maxYears = !empty($availableYears) ? max($availableYears) : 10;
@@ -785,9 +838,16 @@ function domain_reseller_registrar_GetTldPricing($params) {
             $item->setYears($availableYears);
         }
 
-        // Whether a TLD needs an EPP code is a property of the TLD, so it comes
-        // from the provider per extension rather than being assumed for all.
-        $item->setEppRequired(!empty($tldFeatures[$tld]['eppcode']));
+        // The provider's tld_features map does not currently carry an EPP
+        // flag (it reports addon enablement instead — see API.md), so this
+        // defaults to "required", the common case for gTLDs/most ccTLDs: a
+        // transfer that turns out not to need a code costs nothing extra,
+        // while skipping a code a TLD actually needs breaks the transfer.
+        // Only an explicit `eppcode` value (if the provider adds one later)
+        // overrides that default.
+        $features = $tldFeatures[$tld] ?? $tldFeatures['.' . $tld] ?? null;
+        $eppRequired = isset($features['eppcode']) ? (bool) $features['eppcode'] : true;
+        $item->setEppRequired($eppRequired);
 
         $results[] = $item;
     }

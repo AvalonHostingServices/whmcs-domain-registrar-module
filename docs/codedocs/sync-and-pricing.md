@@ -15,6 +15,8 @@ These callbacks matter because WHMCS automation depends on them for lifecycle co
 
 ## How It Works Internally
 
+Unlike every other callback, `Sync` and `TransferSync` get a response from the provider with **no `status`/`data` envelope at all** — a flat JSON object, HTTP 200 whether the sync succeeded or not, with an `error` key that is always present (empty string on success). `reseller_callAPI()` special-cases both action names so it hands the decoded body straight back instead of forcing it through the enveloped-response logic that every other callback uses.
+
 `Sync()` sends:
 
 ```php
@@ -44,11 +46,12 @@ Then it converts the response into:
 
 1. Looks up the default WHMCS currency from `tblcurrencies` through `Capsule`.
 2. Sends that currency code upstream in the `GetTldPricing` action.
-3. Reads `tlds` and `currency` from the provider response.
+3. Reads `tlds` and `currency` from the provider response. The provider keys TLDs **with a leading dot** (`.com`) and pricing years as plain numbers (`"1"`, `"2"`) — the module strips the dot and accepts `"1yr"`-style keys only as a fallback.
 4. Skips TLDs missing a positive one-year register price.
 5. Builds `ImportItem` objects with register, renew, and transfer prices.
 6. Detects custom year ranges and calls `setYears()` when year keys are not contiguous.
-7. Returns a `ResultsList` collection.
+7. Marks every TLD as EPP-required by default — the provider's `tld_features` map currently reports addon enablement (`dnsmanagement`/`emailforwarding`/`idprotection`), not an EPP flag, so there's no live signal to say a TLD *doesn't* need one. An explicit `tld_features[tld].eppcode` value, if the provider ever sends one, overrides the default.
+8. Returns a `ResultsList` collection.
 
 ```mermaid
 flowchart TD
@@ -88,21 +91,24 @@ A pricing response with custom year ranges can look like:
 {
   "status": "success",
   "data": {
-    "currency": { "code": "USD" },
+    "currency": { "id": 1, "code": "USD", "prefix": "$", "suffix": "" },
     "tlds": {
       ".com": {
-        "register": { "1yr": "10.99", "2yr": "20.50", "5yr": "49.00" },
-        "renew": { "1yr": "11.99", "2yr": "22.50", "5yr": "54.00" },
-        "transfer": { "1yr": "9.99" }
+        "register": { "1": 10.99, "2": 20.50, "5": 49.00 },
+        "renew": { "1": 11.99, "2": 22.50, "5": 54.00 },
+        "transfer": { "1": 9.99 }
       }
+    },
+    "tld_features": {
+      ".com": { "dnsmanagement": true, "emailforwarding": true, "idprotection": true }
     }
   }
 }
 ```
 
-The module will detect the non-contiguous years `1`, `2`, and `5`, set `minYears` to `1`, `maxYears` to `5`, and call `setYears([1, 2, 5])` on the generated `ImportItem`. That preserves the provider's real sales windows instead of assuming every year in the range is available.
+The module will detect the non-contiguous years `1`, `2`, and `5`, set `minYears` to `1`, `maxYears` to `5`, and call `setYears([1, 2, 5])` on the generated `ImportItem`. That preserves the provider's real sales windows instead of assuming every year in the range is available. The imported `.com` item is also marked EPP-required by default, since this `tld_features` entry doesn't say otherwise.
 
-<Callout type="warn">`GetTldPricing()` drops any TLD that does not have a positive `register.1yr` price. If your provider only sells a TLD in longer terms, WHMCS will not import it with the current implementation.</Callout>
+<Callout type="warn">`GetTldPricing()` drops any TLD that does not have a positive year-1 register price (checked as `register["1"]`, falling back to `register["1yr"]`). If your provider only sells a TLD in longer terms, WHMCS will not import it with the current implementation.</Callout>
 
 ## Trade-Offs
 

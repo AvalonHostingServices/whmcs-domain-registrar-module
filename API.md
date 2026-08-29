@@ -10,11 +10,14 @@ The module sends JSON POST requests to the configured API endpoint with this env
 {
   "api_key": "<your_api_key>",
   "action": "<ActionName>",
+  "locale": "<current WHMCS locale, e.g. \"english\">",
   "params": {
     "...": "action-specific parameters"
   }
 }
 ```
+
+`locale` is a best-effort read of the current WHMCS client/admin language (see `drr_current_locale()`); implementers may use it to localize `message` text in the response. It is not guaranteed accurate — WHMCS does not document a reliable source for it inside registrar-module functions — so treat it as a hint, and always fall back to English if unrecognized.
 
 ## Base Response Envelope
 
@@ -35,11 +38,14 @@ Error:
 {
   "status": "error",
   "message": "Human readable error",
+  "error_code": "optional_machine_readable_code",
   "data": {
     "...": "optional diagnostics"
   }
 }
 ```
+
+`error_code` is optional. When present, the module currently passes it through unchanged as an extra `error_code` key on its own error return — it is not yet mapped to anything locally. Some errors add other extra keys alongside `message` (for example an IP-whitelist rejection also returns `client_ip` and `whitelisted_ips`); the module preserves the full decoded body under `details`.
 
 ## Common Parameters
 
@@ -90,6 +96,9 @@ Example error response:
 
 Registers a new domain.
 
+The provider pulls contact/WHOIS data from the reseller's own account, not from the registering client's WHMCS
+profile — this action does **not** accept a `contacts` object. Nameservers chosen at checkout are optional.
+
 Required params:
 
 - `domainid`
@@ -98,7 +107,10 @@ Required params:
 - `dnsmanagement`
 - `emailforwarding`
 - `idprotection`
-- `contacts` with `registrant`, `admin`, `tech`, `billing`
+
+Optional params:
+
+- `nameservers` (array, up to 5)
 
 Example:
 
@@ -110,38 +122,17 @@ Example:
     "domainid": 123,
     "domainname": "example.com",
     "regperiod": 1,
+    "nameservers": ["ns1.example.com", "ns2.example.com"],
     "dnsmanagement": true,
     "emailforwarding": false,
-    "idprotection": true,
-    "contacts": {
-      "registrant": {
-        "firstname": "John",
-        "lastname": "Doe",
-        "email": "john@example.com"
-      },
-      "admin": {
-        "firstname": "John",
-        "lastname": "Doe",
-        "email": "john@example.com"
-      },
-      "tech": {
-        "firstname": "Jane",
-        "lastname": "Doe",
-        "email": "jane@example.com"
-      },
-      "billing": {
-        "firstname": "John",
-        "lastname": "Doe",
-        "email": "billing@example.com"
-      }
-    }
+    "idprotection": true
   }
 }
 ```
 
 ### TransferDomain
 
-Transfers an existing domain.
+Transfers an existing domain. Same rationale as RegisterDomain — no `contacts` object.
 
 Required params:
 
@@ -152,8 +143,10 @@ Required params:
 - `dnsmanagement`
 - `emailforwarding`
 - `idprotection`
-- `nameservers` (array)
-- `contacts` with `registrant`, `admin`, `tech`, `billing`
+
+Optional params:
+
+- `nameservers` (array, up to 5) — applied once the transfer completes
 
 Example:
 
@@ -169,14 +162,7 @@ Example:
     "dnsmanagement": true,
     "emailforwarding": false,
     "idprotection": false,
-    "nameservers": ["ns1.example.net", "ns2.example.net"],
-    "contacts": {
-      "registrant": {
-        "firstname": "John",
-        "lastname": "Doe",
-        "email": "john@example.com"
-      }
-    }
+    "nameservers": ["ns1.example.net", "ns2.example.net"]
   }
 }
 ```
@@ -273,6 +259,18 @@ Possible response objects:
 - `Technical` or `Tech`
 - `Billing`
 
+This action is a direct passthrough of WHMCS's own `DomainGetWhoisInfo`, so each contact object uses WHMCS's
+space-separated WHOIS field names — not the underscored names used by `SaveContactDetails` below:
+
+- `First Name`, `Last Name`, `Company Name`
+- `Email Address`
+- `Address 1`, `Address 2`
+- `City`, `State`, `Postcode`, `Country`
+- `Phone Number`
+
+`drr_normalize_contact()` in the module reads these first, with the underscored/`Full_Name`/`Zip` spellings kept
+only as defensive fallbacks in case a different backend varies.
+
 Example success data:
 
 ```json
@@ -280,14 +278,17 @@ Example success data:
   "status": "success",
   "data": {
     "Registrant": {
-      "Full_Name": "John Doe",
-      "Email": "john@example.com",
-      "Address": "123 Main Street",
+      "First Name": "John",
+      "Last Name": "Doe",
+      "Company Name": "Example Inc",
+      "Email Address": "john@example.com",
+      "Address 1": "123 Main Street",
+      "Address 2": "",
       "City": "Dhaka",
       "State": "Dhaka",
-      "Zip": "1207",
+      "Postcode": "1207",
       "Country": "BD",
-      "Phone": "+8801000000000"
+      "Phone Number": "+8801000000000"
     }
   }
 }
@@ -578,11 +579,18 @@ The module sends:
 
 Expected response data:
 
-- `currency` object containing at least `code`
-- `tlds` map containing pricing for `register`, `renew`, `transfer` by year keys like `1yr`
-- `tld_features` (optional): map keyed by TLD, each entry may set `eppcode` (boolean-like) to indicate
-  whether that TLD requires an EPP/Auth code for transfer. A TLD omitted from this map, or with
-  `eppcode` false/absent, is imported with EPP not required.
+- `currency` object containing at least `code` (other keys such as `id`/`prefix`/`suffix` are ignored)
+- `tlds` map keyed by TLD **with a leading dot** (e.g. `".com"`), each containing `register`/`renew`/`transfer`
+  pricing objects keyed by plain year numbers (e.g. `"1"`, `"2"`); `"1yr"`-style keys are also accepted, as a
+  fallback. Each TLD's pricing object may also carry an `addons` object (see note below).
+- `tld_features` (optional): map keyed by the same dotted TLD, reporting which addons (`dnsmanagement`,
+  `emailforwarding`, `idprotection`) are enabled for that TLD. **Not currently used to determine whether a
+  TLD needs an EPP/Auth code** — the module has no live signal for that today, so every TLD is imported as
+  EPP-required by default (the safe default for gTLDs/most ccTLDs — an unneeded code costs nothing, a missed
+  one breaks the transfer). An explicit `tld_features[tld].eppcode` value, if ever sent, overrides that
+  default; this key is not part of the current response but the module supports it for forward-compatibility.
+
+A TLD is only imported if it has a positive `register` price for year 1; a TLD missing that is skipped.
 
 Example success data:
 
@@ -590,75 +598,60 @@ Example success data:
 {
   "status": "success",
   "data": {
-    "currency": { "code": "USD" },
     "tlds": {
-      "com": {
-        "register": { "1yr": "10.00" },
-        "renew": { "1yr": "12.00" },
-        "transfer": { "1yr": "10.00" }
+      ".com": {
+        "register": { "1": 10.99, "2": 21.98 },
+        "transfer": { "1": 10.99 },
+        "renew": { "1": 12.99 },
+        "addons": {
+          "dnsmanagement": { "label": "DNS Management", "register": 2.00, "transfer": 2.00, "renew": 2.00 },
+          "emailforwarding": { "label": "Email Forwarding", "register": 1.50, "transfer": 1.50, "renew": 1.50 },
+          "idprotection": { "label": "ID Protection", "register": 3.00, "transfer": 3.00, "renew": 3.00 }
+        }
       },
-      "de": {
-        "register": { "1yr": "8.00" },
-        "renew": { "1yr": "9.00" }
+      ".net": {
+        "register": { "1": 11.99 },
+        "transfer": { "1": 11.99 },
+        "renew": { "1": 13.99 }
       }
     },
     "tld_features": {
-      "com": { "eppcode": true },
-      "de": { "eppcode": false }
-    }
+      ".com": { "dnsmanagement": true, "emailforwarding": true, "idprotection": true },
+      ".net": { "dnsmanagement": true, "emailforwarding": false, "idprotection": true }
+    },
+    "currency": { "id": 1, "code": "USD", "prefix": "$", "suffix": "" }
   }
 }
 ```
 
-### check_module_update
+The module currently imports register/renew/transfer pricing and the derived min/max registration years only;
+the per-TLD `addons` pricing object is not yet synced into WHMCS (WHMCS's domain-addon pricing is configured
+separately from the registrar TLD importer).
 
-Checked once daily by a WHMCS cron hook (not a WHMCS registrar function) to support module self-update.
+### Self-update
 
-The module sends:
+Module self-update is **not** driven by this API. It is a `DailyCronJob` hook (`drr_check_update()` in
+`hooks.php`) that checks this repository's [GitHub Releases](https://github.com/AvalonHostingServices/whmcs-domain-registrar-module/releases)
+directly — a separate, independently-versioned distribution channel from the reseller API. The API is never
+trusted to supply update code, so there is nothing for an API implementer to build for this; a previous
+version of this document described a `check_module_update` action, which no longer exists.
 
-- `current_version`: the module's currently installed version (from `whmcs.json` / `DRR_VERSION`)
-
-Expected response data:
-
-- `latest_version`: latest available module version string
-- `download_url`: direct URL to a `.zip` package of the module
-
-Example request:
-
-```json
-{
-  "api_key": "your_api_key",
-  "action": "check_module_update",
-  "params": {
-    "current_version": "2.1.0"
-  }
-}
-```
-
-Example success data:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "latest_version": "2.2.0",
-    "download_url": "https://example.com/downloads/domain_reseller_registrar-2.2.0.zip"
-  }
-}
-```
-
-If `latest_version` is not newer than `current_version` (per semantic version comparison), or either field
-is missing, the module takes no action. When an update is applied, the module preserves the reseller's
-configured `DisplayName` and existing `logo.png`, and renames `domain_reseller_registrar.php` to match the
-installed module folder name if it was renamed for white-labeling.
+The module compares `DRR_VERSION` against the latest GitHub release's tag, and if newer, downloads that
+release's `whmcs-domain-registrar-module-<tag>.zip` asset, verifies it against the matching `.sha256` asset
+before extracting anything, then installs it in place — preserving the reseller's configured `DisplayName`
+and existing `logo.png`. This can be disabled per-install via the module's "Automatic Updates" config option.
 
 ## Notes for API Implementers
 
 - All requests are sent as `Content-Type: application/json`.
-- Module timeout is 60 seconds (120 seconds for the update package download).
+- Module timeout is 60 seconds. A request is retried once, only when it never reached the provider at all
+  (DNS/connect failure) — never on a timeout mid-request or any response actually received, since
+  register/transfer/renew are not safe to resend blind.
 - Module expects well-formed JSON responses.
 - Successful responses must use `status: success` and return payload under `data`.
 - Any other status is treated as an error and shown to WHMCS.
+- `Sync` and `TransferSync` are the exception to the above: see their sections for their flat, non-enveloped
+  response shape.
 
 ## Error Reporting
 

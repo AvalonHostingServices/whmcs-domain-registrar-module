@@ -11,7 +11,7 @@ These callbacks are the most WHMCS-specific functions in the module. They are de
 function domain_reseller_registrar_Sync(array $params): array
 ```
 
-Polls the provider for domain lifecycle state and returns the fields WHMCS sync expects.
+Polls the provider for domain lifecycle state and returns the fields WHMCS sync expects. The provider's response for this action has no `status`/`data` envelope — a flat object, HTTP 200 whether the sync succeeded or not, with `error` always present (empty string on success) — so the check is `!empty($response['error'])`, not `isset()`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -99,11 +99,15 @@ Example:
 $providerResponse = [
     'currency' => ['code' => 'USD'],
     'tlds' => [
+        // Leading dot, plain numeric year keys — both are the provider's real shape.
         '.com' => [
-            'register' => ['1yr' => '10.99'],
-            'renew' => ['1yr' => '11.99'],
-            'transfer' => ['1yr' => '9.99'],
+            'register' => ['1' => 10.99],
+            'renew' => ['1' => 11.99],
+            'transfer' => ['1' => 9.99],
         ],
+    ],
+    'tld_features' => [
+        '.com' => ['dnsmanagement' => true, 'emailforwarding' => true, 'idprotection' => true],
     ],
 ];
 ```
@@ -114,6 +118,8 @@ $providerResponse = [
 - `Sync()` and `TransferSync()` use `$params['domain']`, not `$params['domainname']`.
 - `GetTldPricing()` defaults to `USD` when the WHMCS default currency lookup returns no row.
 - TLDs without a positive one-year register price are skipped.
+- TLD keys arrive with a leading dot (`.com`) and are stripped before import; pricing years are numeric (`"1"`), with `"1yr"`-style keys accepted only as a fallback.
+- Every imported TLD defaults to EPP-required, since `tld_features` currently reports addon enablement, not an EPP flag.
 
 Related pages:
 

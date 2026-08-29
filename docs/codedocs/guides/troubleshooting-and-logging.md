@@ -50,6 +50,16 @@ This guide focuses on the failure modes that follow directly from the source cod
 
     The module registers `AdminAreaHeaderOutput` in `hooks.php` and injects `css/style.css`. That stylesheet disables certain `Contact Id` inputs in the admin contact editor. If operators report that those fields look locked, that behavior is intentional and comes from the module, not from a browser or theme issue.
   </Step>
+  <Step>
+    ### If a sync action always fails, check for the flat-envelope gotcha
+
+    `Sync` and `TransferSync` responses have no `status`/`data` envelope — a flat object, HTTP 200 either way, with `error` always present (empty string on success). If every sync reports failure even though your provider endpoint looks correct, confirm your response omits `status`/`data` for these two actions specifically, and that `error` is genuinely empty on success rather than `null` or absent.
+  </Step>
+  <Step>
+    ### Self-update didn't apply a new version
+
+    Self-update pulls from this repository's GitHub Releases, not your provider API — nothing on the provider side can cause or fix this. Check, in order: the "Automatic Updates" config option isn't unchecked; the WHMCS server has outbound HTTPS access to `api.github.com` and `github.com`'s release asset CDN; and, if a download did happen but nothing changed, that the release actually publishes a matching `.sha256` asset — a checksum mismatch or a missing checksum asset aborts the update silently from the admin's perspective (it's reported to GlitchTip, but not surfaced anywhere in WHMCS admin).
+  </Step>
 </Steps>
 
 ## Common Symptoms
@@ -70,9 +80,17 @@ Check these three conditions:
 - `tlds` exists and is non-empty.
 - each TLD has a positive `register.1yr` price.
 
+### Contact fields come back empty
+
+`GetContactDetails` reads WHMCS's own space-separated WHOIS field names first — `"First Name"`, `"Email Address"`, `"Phone Number"`, `"Postcode"`, etc. Returning only underscored keys (`First_Name`, `Email`, `Phone`) without the space-separated equivalents will leave WHMCS-visible fields blank, since those are only a fallback.
+
 ### Contact names are split incorrectly
 
-If you only return `Full_Name`, the module splits on spaces. Return explicit `First_Name` and `Last_Name` when you need precise parsing.
+If you only return `Full_Name` (and neither `"First Name"` nor `First_Name`), the module splits it on spaces as a last resort. Return explicit first/last name fields when you need precise parsing.
+
+### GlitchTip gets flooded with routine business errors
+
+The provider documents every business error (redemption period, insufficient balance, etc.) as **non-2xx** — the module distinguishes "expected business error" from "genuine failure" by whether the body is a well-formed `{"status":"error","message":"..."}` shape, not by HTTP status. If your error responses omit `status` or `message`, or use a different shape, they'll be reported to GlitchTip as anomalies even when they're routine.
 
 ## Quick Diagnostic Endpoint
 

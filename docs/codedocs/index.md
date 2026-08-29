@@ -120,10 +120,11 @@ For a full setup flow, continue with [Installation and Activation](/docs/guides/
 ## Key Features
 
 - Supports registration, renewal, transfer, delete request, EPP retrieval, ID protection, registrar lock, DNS, and child nameserver operations.
-- Uses one transport helper, `reseller_callAPI()`, for the entire provider API contract.
+- Uses one transport helper, `reseller_callAPI()`, for the entire provider API contract — including a connect-failure-only retry and a best-effort `locale` field on every request.
 - Normalizes provider contact payloads into WHMCS-friendly contact arrays.
 - Supports domain sync, transfer sync, and TLD pricing import through WHMCS-native classes.
 - Adds an admin header hook that injects CSS to prevent editing specific provider-managed contact ID inputs.
+- Self-updates from this repository's GitHub Releases (checksum-verified before install, opt-out via config) and reports genuine transport failures to a fixed GlitchTip project — both independent of the reseller API.
 
 <Cards>
   <Card title="Architecture" href="/docs/architecture">See how WHMCS callbacks, transport, hooks, and pricing import fit together.</Card>

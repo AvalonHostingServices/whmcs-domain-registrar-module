@@ -11,21 +11,23 @@ These callbacks handle contact round-tripping and provider-powered suggestions. 
 function domain_reseller_registrar_GetContactDetails(array $params): array
 ```
 
-Fetches provider contact records and normalizes them into WHMCS contact sections such as `Registrant`, `Billing`, `Technical` or `Tech`, and `Admin`.
+Fetches provider contact records and normalizes them into WHMCS contact sections such as `Registrant`, `Billing`, `Technical` or `Tech`, and `Admin`, using the shared `drr_normalize_contact()` helper for each role.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `params` | `array` | — | WHMCS domain context and module config. |
 
-Example:
+The provider's response is a passthrough of WHMCS's own `DomainGetWhoisInfo`, so it actually arrives using WHMCS's space-separated field names already:
 
 ```php
 <?php
 
 $providerResponse = [
     'Registrant' => [
-        'First_Name' => 'John',
-        'Last_Name' => 'Doe',
+        'First Name' => 'John',
+        'Last Name' => 'Doe',
+        'Email Address' => 'john@example.com',
+        'Postcode' => '78701',
     ],
 ];
 ```
@@ -81,9 +83,9 @@ $providerAction = 'GetDomainSuggestions';
 ## Notes
 
 - Source file: `modules/registrars/domain_reseller_registrar/domain_reseller_registrar.php`
-- `GetContactDetails()` accepts either `Technical` or `Tech` from the provider.
-- Name splitting from `Full_Name` is lossy for complex names; prefer explicit name fields upstream.
-- `SaveContactDetails()` rewrites WHMCS labels into provider-style keys before transport, so debugging should inspect the outbound payload in Module Log rather than the original admin form labels.
+- `GetContactDetails()` accepts either `Technical` or `Tech` from the provider, and reads the real space-separated field names first (`"First Name"`, `"Email Address"`, `"Phone Number"`, `"Postcode"`), falling back to underscored/`Full_Name` spellings.
+- The `Full_Name` split is a last resort and is lossy for complex names; the real provider already sends explicit `"First Name"`/`"Last Name"`.
+- `SaveContactDetails()` rewrites WHMCS labels into provider-style (underscored) keys before transport, so debugging should inspect the outbound payload in Module Log rather than the original admin form labels. The provider accepts either style for this action.
 
 ## Common Pattern
 

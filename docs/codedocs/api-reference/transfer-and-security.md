@@ -63,24 +63,26 @@ $providerPayload = [
 function domain_reseller_registrar_GetRegistrarLock(array $params): array
 ```
 
-Returns the decoded provider lock state directly unless an error occurs.
+Normalizes the provider's lock state into the single key WHMCS actually reads, instead of assuming the provider already uses WHMCS's internal field name. Checks `lockstatus`, then `status`, then `lockenabled`, defaulting to `'unlocked'` if none are present.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `params` | `array` | — | WHMCS domain context and module config. |
 
-Typical return:
+Return shape (both keys always present, same value):
 
 ```php
-['lockenabled' => 'locked']
+['lockstatus' => 'locked', 'status' => 'locked']
 ```
 
-Example:
+Example — any of these provider responses normalize the same way:
 
 ```php
 <?php
 
-$providerResponse = ['lockenabled' => 'unlocked'];
+$providerResponse = ['lockenabled' => 'locked'];
+// or ['lockstatus' => 'locked']
+// or ['status' => 'locked']
 ```
 
 ## `domain_reseller_registrar_SaveRegistrarLock`

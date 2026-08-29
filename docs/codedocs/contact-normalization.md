@@ -3,7 +3,7 @@ title: "Contact Normalization"
 description: "How the module translates contact records between provider payloads and WHMCS contact arrays."
 ---
 
-Contact data is where this module performs the most explicit schema translation. WHMCS wants human-readable contact arrays for domain contact editing, while provider systems often return differently named keys such as `Full_Name`, `Address`, `Address_1`, `Phone_Number`, or `Technical`. The module normalizes those differences in both directions.
+Contact data is where this module performs the most explicit schema translation. WHMCS wants human-readable contact arrays for domain contact editing. The provider's `GetContactDetails` response is a direct passthrough of WHMCS's own `DomainGetWhoisInfo` command, so it actually arrives using WHMCS's own space-separated field names already (`"First Name"`, `"Email Address"`, `"Phone Number"`, `"Postcode"`, `"Tech"` for the technical contact) — but the module still normalizes defensively, falling back to underscored/alternate spellings (`Full_Name`, `Address_1`, `Phone_Number`, `Technical`) in case a different backend varies.
 
 ## Why This Exists
 
@@ -24,7 +24,7 @@ This concept is tightly connected to:
 - `Tech`
 - `Admin`
 
-For each section, the source maps provider keys into WHMCS keys such as:
+Each section is normalized by one shared helper, `drr_normalize_contact()`, into WHMCS keys such as:
 
 - `Company Name`
 - `First Name`
@@ -38,9 +38,9 @@ For each section, the source maps provider keys into WHMCS keys such as:
 - `Country`
 - `Phone`
 
-If `Full_Name` exists, the module splits it on spaces and uses the first token as `First Name` and the last token as `Last Name`. It also falls back across multiple address and phone field names, for example `Address`, `Address1`, `Address_1` and `Phone`, `Phone_Number`.
+For each of those, the helper checks the provider's real (space-separated) field name first — `"Company Name"`, `"First Name"`/`"Last Name"`, `"Address 1"`/`"Address 2"`, `"Email Address"`, `"Postcode"`, `"Phone Number"` — falling back to underscored/alternate spellings (`Company_Name`, `Address_1`, `Zip`, bare `Email`/`Phone`, …) only if the space-separated key is absent. If neither `First Name` nor `Last Name` is present but `Full_Name` is, the helper splits it on spaces and uses the first token as `First Name` and the last token as `Last Name`.
 
-`SaveContactDetails()` performs the inverse mapping. It loops over `$params['contactdetails']`, then writes provider-facing keys like `First_Name`, `Last_Name`, `Company_Name`, `Address_1`, and `Phone`.
+`SaveContactDetails()` performs the inverse mapping. It loops over `$params['contactdetails']`, then writes provider-facing keys like `First_Name`, `Last_Name`, `Company_Name`, `Address_1`, and `Phone` — this is the one direction where the module still uses underscored keys by default, since the provider's `SaveContactDetails` action accepts either style interchangeably.
 
 ```mermaid
 flowchart TD
@@ -56,21 +56,22 @@ flowchart TD
 
 ## Basic Usage Example
 
-A provider can return a minimal contact payload like this:
+A provider response looks like this (WHMCS's own WHOIS-info field names):
 
 ```json
 {
   "status": "success",
   "data": {
     "Registrant": {
-      "Full_Name": "John Doe",
-      "Email": "john@example.com",
-      "Address": "123 Main Street",
+      "First Name": "John",
+      "Last Name": "Doe",
+      "Email Address": "john@example.com",
+      "Address 1": "123 Main Street",
       "City": "Austin",
       "State": "TX",
-      "Zip": "78701",
+      "Postcode": "78701",
       "Country": "US",
-      "Phone": "+15125550123"
+      "Phone Number": "+15125550123"
     }
   }
 }
@@ -124,7 +125,7 @@ If your upstream service expects provider-style keys on save, this is what the m
 
 That means your provider API should not expect WHMCS labels like `First Name`; the module already normalized them before making the request.
 
-<Callout type="warn">The `Full_Name` split logic is simple. Multi-part surnames or single-word names will not be preserved perfectly because the source takes the first token as first name and the last token as last name. If name fidelity matters, return explicit `First_Name` and `Last_Name` fields from the provider instead of `Full_Name` alone.</Callout>
+<Callout type="warn">The `Full_Name` split is only a last-resort fallback, used when neither `"First Name"` nor `First_Name` is present. It is simple: multi-part surnames or single-word names will not be preserved perfectly, because the source takes the first token as first name and the last token as last name. The real provider API sends explicit `"First Name"`/`"Last Name"` already, so this path shouldn't normally be exercised in production.</Callout>
 
 ## Trade-Offs
 

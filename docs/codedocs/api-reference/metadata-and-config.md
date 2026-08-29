@@ -28,7 +28,7 @@ Returns:
 ```php
 [
     'DisplayName' => 'Avalon Hosting Services',
-    'APIVersion' => '1.0.0',
+    'APIVersion' => DRR_VERSION, // e.g. '2.3.0' — kept in sync with whmcs.json
     'Description' => 'This Registrar allows you to offer a wide variety of TLD straight from your Provider System.',
 ]
 ```
@@ -60,6 +60,7 @@ Returns a config map with:
 - `customApiEndpoint`
 - `customApiKey`
 - `moduleLog`
+- `autoUpdate` — `yesno`, defaults on; opts an install out of the daily self-update check in `hooks.php` when unchecked
 
 Example:
 
@@ -125,9 +126,10 @@ $response = reseller_callAPI(
 ## Notes
 
 - Source file: `modules/registrars/domain_reseller_registrar/domain_reseller_registrar.php`
-- The helper sets a 60-second timeout.
+- The helper sets a 60-second timeout per attempt, and retries once on a connect/DNS-level failure only.
 - It logs only when `moduleLog` is enabled.
-- It ignores the HTTP status code and trusts the JSON `status` field.
+- Success/failure is decided by the JSON `status` field, not the HTTP status code — but the HTTP status is still consulted to tell a documented business error apart from a genuine anomaly worth reporting to GlitchTip (see [Provider API Transport](/docs/provider-api-transport)).
+- Every request also carries a best-effort `locale` field.
 
 Related pages:
 

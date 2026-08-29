@@ -45,6 +45,7 @@ System Settings > Domain Registrars
     Optional:
 
     - `Enable Module Log`
+    - `Automatic Updates` (checked by default) — leave it on to receive new module versions automatically from GitHub Releases once a day; uncheck it to manage updates manually. This is unrelated to your `API Endpoint`, and the reseller API is never used for updates.
 
     These fields are declared in `modules/registrars/domain_reseller_registrar/domain_reseller_registrar.php`. `API Endpoint` is the URL cURL posts JSON to, and `API Key` becomes the `api_key` field in every request body.
   </Step>

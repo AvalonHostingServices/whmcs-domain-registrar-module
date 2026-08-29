@@ -26,7 +26,7 @@ function domain_reseller_registrar_getConfigArray()
 
 These identify the registrar to WHMCS and declare its configurable fields. The operational callbacks follow. Some examples:
 
-- `domain_reseller_registrar_RegisterDomain($params)` builds a payload with contact sections and feature flags, calls the provider action `RegisterDomain`, then returns either `['error' => ...]` or `['success' => true]`.
+- `domain_reseller_registrar_RegisterDomain($params)` builds a payload with the chosen nameservers and feature flags (no contact data — the provider uses the reseller's own account contact), calls the provider action `RegisterDomain`, then returns either `['error' => ...]` or `['success' => true]`.
 - `domain_reseller_registrar_GetNameservers($params)` asks the provider for nameservers, then guarantees a five-key result with `ns1` through `ns5`.
 - `domain_reseller_registrar_TransferSync($params)` always returns the specific keys WHMCS expects for transfer polling, even on failure.
 
@@ -65,15 +65,18 @@ Typical WHMCS-supplied fields used by the source include:
     'domainid' => 123,
     'domainname' => 'example.com',
     'regperiod' => 1,
+    'ns1' => 'ns1.example.com',
+    'ns2' => 'ns2.example.com',
     'dnsmanagement' => true,
     'emailforwarding' => false,
     'idprotection' => true,
-    'adminfirstname' => 'John',
-    'techfirstname' => 'Jane',
+    'language' => 'english',
     'customApiEndpoint' => 'https://provider.example/api',
     'customApiKey' => 'secret',
 ]
 ```
+
+`RegisterDomain`/`TransferDomain` read `ns1`..`ns5` for the outgoing `nameservers` array, but do not read or forward the `admin*`/`tech*`/`billing*` contact fields — those exist in WHMCS's `$params` but the provider API doesn't accept them on these two actions.
 
 ## Advanced Example
 
@@ -96,7 +99,7 @@ function domain_reseller_registrar_TransferSync(array $params): array
 
 That return shape is not optional. If your provider only returns `status: success`, the module still has to translate that into the polling fields WHMCS expects.
 
-<Callout type="warn">Do not treat all callbacks as interchangeable success booleans. `GetNameservers`, `GetContactDetails`, `GetEPPCode`, `Sync`, `TransferSync`, and `GetTldPricing` each require a specific return schema, and returning the wrong keys will surface as broken WHMCS UI states rather than obvious PHP errors.</Callout>
+<Callout type="warn">Do not treat all callbacks as interchangeable success booleans. `GetNameservers`, `GetContactDetails`, `GetEPPCode`, `Sync`, `TransferSync`, and `GetTldPricing` each require a specific return schema, and returning the wrong keys will surface as broken WHMCS UI states rather than obvious PHP errors. `Sync`/`TransferSync` are the sharpest edge here: their provider response has no `status`/`data` envelope at all, and always includes an `error` key — empty string on success, non-empty on failure. Checking `isset($response['error'])` instead of `!empty($response['error'])` will read every successful sync as a failure.</Callout>
 
 ## Trade-Offs
 
@@ -105,7 +108,7 @@ That return shape is not optional. If your provider only returns `status: succes
     WHMCS already defines the public entrypoint as a set of named functions, so the module keeps that structure explicit. The upside is clarity: when WHMCS needs `RegisterDomain`, there is exactly one function with that name and no bootstrapping layer to debug. The downside is testability and reuse, because there is no injected transport interface or service object. If you want stronger separation later, the pragmatic refactor is to keep these functions as thin wrappers and move internals into a helper class without changing the exported function names.
   </Accordion>
   <Accordion title="Uniform callback pattern across different operations">
-    Nearly every function follows the same build-call-map pattern, which lowers maintenance cost and makes behavior predictable. That pattern also means callbacks with very different semantics are forced into a similar shape, even when some could benefit from stronger validation before the API call. For example, `SaveNameservers()` always forwards `ns1` through `ns5`, while `TransferDomain()` filters empty nameservers with `array_filter()`. Consistency wins here, but you should not assume the input hygiene is equally strict across all callbacks.
+    Nearly every function follows the same build-call-map pattern, which lowers maintenance cost and makes behavior predictable. That pattern also means callbacks with very different semantics are forced into a similar shape, even when some could benefit from stronger validation before the API call. For example, `SaveNameservers()` always forwards `ns1` through `ns5` (even empty ones), while `RegisterDomain()` and `TransferDomain()` filter empty nameserver values out with `array_filter()` before sending the `nameservers` array. Consistency wins here, but you should not assume the input hygiene is equally strict across all callbacks.
   </Accordion>
 </Accordions>
 

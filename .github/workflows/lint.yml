@@ -24,4 +24,7 @@ jobs:
 
             - name: Run PHP syntax checks
               run: |
-                  find modules -type f -name "*.php" -print0 | xargs -0 -n1 php -l
+                  find modules tests -type f -name "*.php" -print0 | xargs -0 -n1 php -l
+
+            - name: Run test suite
+              run: php tests/run.php

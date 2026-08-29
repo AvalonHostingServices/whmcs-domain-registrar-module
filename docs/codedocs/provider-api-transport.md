@@ -13,12 +13,15 @@ The helper turns WHMCS callback data into a JSON POST request with a fixed envel
 {
   "api_key": "your_api_key",
   "action": "ActionName",
+  "locale": "english",
   "params": {
     "domainid": 123,
     "domainname": "example.com"
   }
 }
 ```
+
+`locale` is a best-effort read of the current WHMCS client/admin language, sent so your API can optionally localize `message` text. Treat it as a hint, not a guarantee — WHMCS doesn't document a reliable source for it inside registrar-module callbacks.
 
 It then expects a JSON response shaped like:
 
@@ -36,9 +39,14 @@ or
 ```json
 {
   "status": "error",
-  "message": "Human readable message"
+  "message": "Human readable message",
+  "error_code": "optional_machine_readable_code"
 }
 ```
+
+`error_code` is optional; the module passes it through unchanged on its own error return when present, but does not yet act on any particular value.
+
+`Sync` and `TransferSync` are the exception to this envelope — see [Sync and Pricing Import](/docs/sync-and-pricing).
 
 This concept exists so the module can keep WHMCS-facing code small while the provider API varies by action.
 
@@ -50,20 +58,21 @@ This concept exists so the module can keep WHMCS-facing code small while the pro
 
 ## Internal Logic Walkthrough
 
-The implementation does five concrete things:
+The implementation does six concrete things:
 
-1. Reads `customApiEndpoint`, `customApiKey`, and `moduleLog` from `$params`.
-2. Uses cURL to `POST` JSON to the configured endpoint with `Content-Type: application/json`.
-3. Sends a body containing `api_key`, `action`, and `params`.
-4. Decodes the JSON response into an associative array.
-5. Returns `$decodedResponse['data']` for `status === 'success'`, otherwise returns `['error' => ...]`.
+1. Reads `customApiEndpoint`, `customApiKey`, and `moduleLog` from `$params`, and derives a best-effort `locale`.
+2. POSTs JSON to the configured endpoint via `drr_http_request()` (a thin cURL wrapper shared with GlitchTip reporting and the self-update calls) with `Content-Type: application/json`.
+3. Sends a body containing `api_key`, `action`, `locale`, and `params`.
+4. Retries once, but only when the request never reached the provider at all (a connect/DNS-level cURL failure) — never on a timeout mid-request or any response actually received.
+5. Decodes the JSON response into an associative array.
+6. Returns `$decodedResponse['data']` for `status === 'success'`; for `Sync`/`TransferSync` returns the decoded body as-is (no envelope); otherwise returns `['error' => ..., 'details' => ..., 'error_code' => ...]`.
 
 Important source details:
 
-- Timeout is hard-coded to `60` seconds.
+- Timeout is `60` seconds per attempt.
 - `CURLOPT_FOLLOWLOCATION` is enabled.
 - `logModuleCall()` receives the endpoint, action, request params, and decoded response only when `moduleLog` is truthy.
-- `$httpCode` is captured but never used in decision-making.
+- `$httpCode` **is** used, but not as a simple success/failure switch: since the provider documents every business error as non-2xx, the module reports a non-2xx response to GlitchTip only when it *isn't* a well-formed `{"status":"error","message":"..."}` body — that's the signal for "something actually went wrong", not the HTTP status by itself.
 
 ```mermaid
 sequenceDiagram

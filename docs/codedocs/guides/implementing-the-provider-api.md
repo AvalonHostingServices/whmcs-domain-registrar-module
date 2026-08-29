@@ -100,35 +100,38 @@ $handlers = [
         ];
     },
     'GetContactDetails' => function (array $params): array {
+        // WHMCS's own WHOIS-info field names — the module reads these first.
         return [
             'status' => 'success',
             'data' => [
                 'Registrant' => [
-                    'First_Name' => 'John',
-                    'Last_Name' => 'Doe',
-                    'Email' => 'john@example.com',
-                    'Address_1' => '123 Main Street',
+                    'First Name' => 'John',
+                    'Last Name' => 'Doe',
+                    'Email Address' => 'john@example.com',
+                    'Address 1' => '123 Main Street',
                     'City' => 'Austin',
                     'State' => 'TX',
-                    'Zip' => '78701',
+                    'Postcode' => '78701',
                     'Country' => 'US',
-                    'Phone_Number' => '+15125550123',
+                    'Phone Number' => '+15125550123',
                 ],
             ],
         ];
     },
-    'Sync' => function (array $params): array {
-        return [
-            'status' => 'success',
-            'data' => [
-                'active' => true,
-                'cancelled' => false,
-                'transferredAway' => false,
-                'expirydate' => '2027-03-25',
-            ],
-        ];
-    },
 ];
+
+// Sync/TransferSync are the exception: no status/data envelope, and
+// `error` must always be present (empty string on success).
+if ($action === 'Sync') {
+    echo json_encode([
+        'active' => true,
+        'cancelled' => false,
+        'transferredAway' => false,
+        'expirydate' => '2027-03-25',
+        'error' => '',
+    ]);
+    exit;
+}
 
 $response = $handlers[$action] ?? null;
 
@@ -145,9 +148,12 @@ echo json_encode($response($params));
 
 ## Real-World Notes
 
-- `RegisterDomain` and `TransferDomain` send a nested `contacts` object and reuse the full WHMCS `$params` array for `registrant`.
+- `RegisterDomain` and `TransferDomain` do **not** send a `contacts` object — build your own registration flow to use the reseller's own account contact instead of expecting WHMCS to supply one. They do send up to 5 `nameservers`.
 - `RegisterNameserver`, `ModifyNameserver`, `DeleteNameserver`, `GetDNS`, `SaveDNS`, and `GetDomainSuggestions` forward the entire `$params` array, so your provider service must tolerate extra WHMCS keys.
-- `GetTldPricing` receives the default WHMCS currency code, not an arbitrary client-side selector.
+- `GetTldPricing` receives the default WHMCS currency code, not an arbitrary client-side selector. Reply with TLD keys prefixed by a dot (`.com`) and plain numeric year keys (`"1"`, `"2"`) — see [Importing TLD Pricing](/docs/guides/importing-tld-pricing).
+- Every request includes a best-effort `locale` field. If you can localize `message` text by it, do so — that's currently the only path for localized business-error text to reach the WHMCS admin/client.
+- `Sync` and `TransferSync` do **not** use the `status`/`data` envelope — return a flat object with `active`/`cancelled`/`transferredAway`/`expirydate`/`error` (or `completed`/`failed`/`expirydate`/`reason`/`error`), HTTP 200, with `error` as an empty string on success.
+- Self-update is no longer this API's responsibility — the module checks GitHub Releases directly. There is no `check_module_update` action to implement.
 
 ## Related Reading
 
