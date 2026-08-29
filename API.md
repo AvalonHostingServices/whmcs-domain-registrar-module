@@ -404,6 +404,21 @@ Required params:
 - `domainid`
 - `domainname`
 
+Expected data keys:
+
+- `lockstatus` (preferred) or `status`: one of `locked`, `unlocked`, or `transferlock unavailable`
+
+Example success data:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "lockstatus": "locked"
+  }
+}
+```
+
 ### SaveRegistrarLock
 
 Sets registrar lock status.
@@ -644,6 +659,15 @@ installed module folder name if it was renamed for white-labeling.
 - Module expects well-formed JSON responses.
 - Successful responses must use `status: success` and return payload under `data`.
 - Any other status is treated as an error and shown to WHMCS.
+
+## Error Reporting
+
+Starting in v2.2.0, the module reports transport-level failures — cURL errors, malformed JSON, and non-2xx
+HTTP responses from your API — to a fixed GlitchTip project maintained by Avalon Hosting Services, so
+integration problems can be caught and fixed across installs. Documented business-error responses (any
+`status: error` returned with a 2xx HTTP status, e.g. "Domain is in redemption period") are **not** reported;
+only genuine transport/server failures are. Only the action name, HTTP status code, and error message are
+sent — never request payloads, contact details, domain names, or API credentials.
 
 ## Related Documentation
 

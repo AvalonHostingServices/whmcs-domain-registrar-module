@@ -15,7 +15,7 @@ Everything lives under one path, which must never move:
 ```
 modules/registrars/domain_reseller_registrar/
 ├── domain_reseller_registrar.php   # all module logic (WHMCS registrar function hooks)
-├── hooks.php                       # WHMCS hook: injects css/style.css in the admin header
+├── hooks.php                       # admin CSS injection + DailyCronJob self-update
 ├── css/style.css                   # small admin UI stylesheet
 ├── logo.png
 └── whmcs.json                      # marketplace/module metadata (name, version, license, links)
@@ -71,16 +71,30 @@ an action's request/response mapping changes here.
   positive `register` 1yr price, derives min/max registration years from whichever `Nyr` keys the API
   returned per TLD, and only calls `setYears()` when the available years are non-contiguous.
 - **Nameserver/DNS passthrough functions** (`RegisterNameserver`, `ModifyNameserver`, `DeleteNameserver`,
-  `GetDNS`, `SaveDNS`, `GetDomainSuggestions`): forward WHMCS's `$params` to the remote API unmodified rather
-  than building a curated `$apiParams` — keep this passthrough behavior consistent if adding similar
-  functions.
+  `GetDNS`, `SaveDNS`, `GetDomainSuggestions`): forward WHMCS's `$params` to the remote API rather than
+  building a curated `$apiParams` — keep this passthrough behavior consistent if adding similar functions.
+  They still run `$params` through `drr_strip_config_params()` first to drop `customApiEndpoint`/
+  `customApiKey`/`moduleLog` — never forward those raw, since `moduleLog` writes `request_params` verbatim
+  into the WHMCS Module Log.
+- **Self-update** (`hooks.php`, `drr_check_update()`): a `DailyCronJob` hook that calls the provider API's
+  `check_module_update` action and, if a newer version is offered, downloads and installs it in place,
+  preserving the reseller's `DisplayName` and `logo.png`. Depends on `DRR_VERSION` being defined — it
+  `require_once`s the main module file if not. Not currently opt-out-able from the WHMCS admin UI.
+- **Error reporting** (`drr_report_error()` in `domain_reseller_registrar.php`): posts genuine transport
+  failures (cURL errors, invalid JSON, non-2xx provider responses, auto-update exceptions) to a fixed
+  GlitchTip project via the Sentry v7 store protocol, using the DSN in `DRR_GLITCHTIP_DSN`. Always-on, no
+  config toggle. Only ever pass curated, non-PII context (action name, HTTP code, error message) — never
+  raw `$params`/`$apiParams`, and it must fail silently (wrapped in try/catch) so a reporting hiccup can
+  never break a registrar call. Documented business errors (2xx + `status: error`) are intentionally *not*
+  reported — see [API.md](API.md#error-reporting).
 
 ### Config
 
 Module settings (`domain_reseller_registrar_getConfigArray()`) are exactly three fields: `customApiEndpoint`
 (text), `customApiKey` (password), `moduleLog` (yesno). These are always present in `$params` on every call
 and are what `reseller_callAPI` reads — don't rename them without updating both the config array and every
-call site.
+call site. `DRR_GLITCHTIP_DSN` is a separate, hardcoded constant (not a reseller-configurable setting) —
+it's Avalon's own monitoring endpoint, the same for every install.
 
 ### Docs map
 

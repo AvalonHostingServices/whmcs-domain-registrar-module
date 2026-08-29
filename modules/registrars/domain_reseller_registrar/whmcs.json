@@ -2,7 +2,7 @@
 	"schema": "1.0",
 	"type": "whmcs-registrars",
 	"name": "domain_reseller_registrar",
-	"version": "2.1.0",
+	"version": "2.2.0",
 	"license": "proprietary",
 	"category": "domains",
 	"authors": [

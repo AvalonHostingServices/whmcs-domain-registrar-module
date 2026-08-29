@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-29
+
+### Added in 2.2.0
+
+- Error reporting: transport-level failures (cURL errors, malformed API responses, non-2xx provider
+  responses, and auto-update failures) are now reported to a GlitchTip project maintained by Avalon Hosting
+  Services, giving centralized visibility into integration issues across installs. Documented business-error
+  responses (e.g. "domain in redemption period") are not reported. Only the action name, HTTP status, and
+  error message are sent — never request payloads, contact details, domain names, or API credentials. See
+  [API.md](API.md#error-reporting).
+- `reseller_callAPI` now fails fast with a clear "Registrar module is not configured" error when the API
+  Endpoint or API Key is empty, instead of surfacing a raw cURL DNS-resolution error.
+
+### Fixed in 2.2.0
+
+- `GetRegistrarLock` previously returned the provider's raw response unnormalized, assuming it already used
+  WHMCS's internal `lockstatus` key. It now normalizes `lockstatus`/`status`/`lockenabled` from the provider
+  into the key WHMCS expects. See [API.md](API.md#getregistrarlock).
+- `RegisterNameserver`, `ModifyNameserver`, `DeleteNameserver`, `GetDNS`, `SaveDNS`, and
+  `GetDomainSuggestions` were forwarding the full WHMCS params array — including `customApiKey` and
+  `customApiEndpoint` — as the request payload, which also meant the API key could be written in plaintext
+  into the WHMCS Module Log when logging was enabled. These now strip module-config keys before forwarding.
+- `CheckAvailability` no longer emits a PHP warning when the provider response omits `status`; it now returns
+  a clear error instead.
+
 ## [2.1.0] - 2026-08-29
 
 ### Added in 2.1.0
@@ -41,4 +66,4 @@ All notable changes to this project are documented in this file.
 
 ---
 
-Tag recommendation: `v2.1.0`
+Tag recommendation: `v2.2.0`
