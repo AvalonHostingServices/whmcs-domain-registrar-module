@@ -2,12 +2,12 @@
 
 Official repository for the Avalon Hosting Services Domain Reseller Registrar Module.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-2.1.0-blue)
 ![WHMCS](https://img.shields.io/badge/WHMCS-8.0+-green)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-blue)
 
 - Marketplace listing: [WHMCS Marketplace Listing](https://marketplace.whmcs.com/product/5396-domain-reseller-module-for-whmcs-avalon-hosting-services)
-- Current stable release: **v2.0.1**
+- Current stable release: **v2.1.0**
 
 ## Overview
 

@@ -565,11 +565,82 @@ Expected response data:
 
 - `currency` object containing at least `code`
 - `tlds` map containing pricing for `register`, `renew`, `transfer` by year keys like `1yr`
+- `tld_features` (optional): map keyed by TLD, each entry may set `eppcode` (boolean-like) to indicate
+  whether that TLD requires an EPP/Auth code for transfer. A TLD omitted from this map, or with
+  `eppcode` false/absent, is imported with EPP not required.
+
+Example success data:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "currency": { "code": "USD" },
+    "tlds": {
+      "com": {
+        "register": { "1yr": "10.00" },
+        "renew": { "1yr": "12.00" },
+        "transfer": { "1yr": "10.00" }
+      },
+      "de": {
+        "register": { "1yr": "8.00" },
+        "renew": { "1yr": "9.00" }
+      }
+    },
+    "tld_features": {
+      "com": { "eppcode": true },
+      "de": { "eppcode": false }
+    }
+  }
+}
+```
+
+### check_module_update
+
+Checked once daily by a WHMCS cron hook (not a WHMCS registrar function) to support module self-update.
+
+The module sends:
+
+- `current_version`: the module's currently installed version (from `whmcs.json` / `DRR_VERSION`)
+
+Expected response data:
+
+- `latest_version`: latest available module version string
+- `download_url`: direct URL to a `.zip` package of the module
+
+Example request:
+
+```json
+{
+  "api_key": "your_api_key",
+  "action": "check_module_update",
+  "params": {
+    "current_version": "2.1.0"
+  }
+}
+```
+
+Example success data:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "latest_version": "2.2.0",
+    "download_url": "https://example.com/downloads/domain_reseller_registrar-2.2.0.zip"
+  }
+}
+```
+
+If `latest_version` is not newer than `current_version` (per semantic version comparison), or either field
+is missing, the module takes no action. When an update is applied, the module preserves the reseller's
+configured `DisplayName` and existing `logo.png`, and renames `domain_reseller_registrar.php` to match the
+installed module folder name if it was renamed for white-labeling.
 
 ## Notes for API Implementers
 
 - All requests are sent as `Content-Type: application/json`.
-- Module timeout is 60 seconds.
+- Module timeout is 60 seconds (120 seconds for the update package download).
 - Module expects well-formed JSON responses.
 - Successful responses must use `status: success` and return payload under `data`.
 - Any other status is treated as an error and shown to WHMCS.
